@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  mcp-client-python:
+    build:
+      context: ./mcp-client-python
+    container_name: mcp-client-python
+    environment:
+      - AI_SERVICE_URL=http://ai-service-fastapi:8000
+    depends_on:
+      - mcp-server-rust
+      - ai-service-fastapi
+
+  mcp-server-rust:
+    build:
+      context: ./mcp-server-rust
+    container_name: mcp-server-rust
+    environment:
+      - RUST_LOG=info
+
+  ai-service-fastapi:
+    build:
+      context: ./ai-service-fastapi
+    container_name: ai-service-fastapi
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1

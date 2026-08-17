@@ -21,13 +21,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Now copy the rest of the project source
 COPY . .
 
-# Install the project itself (mcp-client is an editable/local package)
+# Install the project itself
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 # Put the venv on PATH so `python`/entrypoints work without `uv run`
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Uses the console script "mcp-client" defined in [project.scripts]
-# (mcp-client = "mcp_client:client") — installed into /app/.venv/bin by uv sync
-ENTRYPOINT ["mcp-client"]
+CMD ["echo", "Python Client Placeholder"]
