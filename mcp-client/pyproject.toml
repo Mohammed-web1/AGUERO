@@ -1,10 +1,10 @@
 [project]
 name = "mcp-client"
 version = "0.1.0"
-description = "Add your description here"
+description = "aguero"
 readme = "README.md"
 authors = [
-    { name = "Mohammed-web1", email = "nokrymohammed342@gmail.com" }
+    { name = "Mohammed", email = "nokrymohammed342@gmail.com" }
 ]
 requires-python = ">=3.11"
 dependencies = [
@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-mcp-client = "mcp_client:main"
+mcp-client = "mcp_client:client"
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
