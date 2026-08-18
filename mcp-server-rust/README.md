@@ -3,16 +3,63 @@
 ## Purpose
 This container acts as the secure, high-performance connector between the internal system and external Email Providers (Gmail, Outlook, Yahoo). It uses the Model Context Protocol (MCP) to expose specific, constrained tools to the orchestrator agent.
 
-## Tools Exposed
-- `fetch_unread_emails`: Connects via IMAP/OAuth and retrieves new messages.
-- `apply_label`: Tags an email with a specific label (e.g., "Critical", "Phishing").
-- `move_email`: Moves an email to a specific folder (e.g., "Quarantine").
+## Network Architecture (HTTP/SSE)
+This server runs as a standalone Docker microservice over standard HTTP port `8080`.
+- **`GET /mcp`**: Establish an SSE (Server-Sent Events) connection. The server replies with an `endpoint` event containing your unique Session URL.
+- **`POST /message?session_id=...`**: Post JSON-RPC 2.0 tool calls here. Responses are streamed asynchronously down the SSE channel.
+
+## Tools Exposed & Schemas
+
+### 1. `fetch_unread_emails`
+Connects via secure IMAP and retrieves new messages from the Inbox.
+- **Input:** `{}` (No arguments required)
+- **Output:**
+  ```json
+  {
+    "status": "success",
+    "unread_email_ids": ["123", "124", "125"]
+  }
+  ```
+
+### 2. `apply_label`
+Tags an email with a specific IMAP flag/label.
+- **Input:** 
+  ```json
+  {
+    "email_id": "123",
+    "label": "Important"
+  }
+  ```
+- **Output:**
+  ```json
+  {
+    "status": "success",
+    "message": "Label 'Important' applied to email '123'"
+  }
+  ```
+
+### 3. `move_email`
+Moves an email to a specific IMAP folder.
+- **Input:**
+  ```json
+  {
+    "email_id": "123",
+    "folder": "Quarantine"
+  }
+  ```
+- **Output:**
+  ```json
+  {
+    "status": "success",
+    "message": "Email '123' moved to folder 'Quarantine'"
+  }
+  ```
 
 ## Development Approach
-This server is written in Rust to ensure memory safety and concurrency when handling multiple API endpoints simultaneously. 
+This server is written in Rust using `axum` and `tokio` to ensure memory safety, massive concurrency, and reliable SSE streaming for the Model Context Protocol.
 
-To build and test locally without Docker:
+To build and test locally:
 ```bash
-cargo build
-cargo test
+cargo check
+cargo run
 ```

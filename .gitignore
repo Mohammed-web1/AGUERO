@@ -60,3 +60,4 @@ Thumbs.db
 # Docker
 docker-compose.override.yml
 .dockerignore
+test_mcp.py
