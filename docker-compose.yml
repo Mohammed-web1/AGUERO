@@ -6,7 +6,10 @@ services:
       context: ./mcp-client-python
     container_name: mcp-client-python
     environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - AI_SERVICE_URL=http://ai-service-fastapi:8000
+      - MCP_SERVER_URL=http://mcp-server-rust:8080/mcp
+      - POLL_INTERVAL_SECONDS=60
     depends_on:
       - mcp-server-rust
       - ai-service-fastapi

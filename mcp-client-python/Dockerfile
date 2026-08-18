@@ -28,4 +28,4 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Put the venv on PATH so `python`/entrypoints work without `uv run`
 ENV PATH="/app/.venv/bin:$PATH"
 
-CMD ["echo", "Python Client Placeholder"]
+CMD ["mcp-client"]

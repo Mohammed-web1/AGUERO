@@ -1,6 +1,6 @@
 # Agent Rules and Workflows (As requested)
 .agents/
-
+.env
 # Rust / Cargo
 **/target/
 **/*.rs.bk
