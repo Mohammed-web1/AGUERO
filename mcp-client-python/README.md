@@ -17,6 +17,17 @@ Copy `.env.example` to `.env` and fill in `ANTHROPIC_API_KEY`. Note this `.env` 
 the `environment:` block in the repo-root `docker-compose.yml`, which itself pulls
 `ANTHROPIC_API_KEY` from a separate repo-root `.env` via Compose's own variable substitution.
 
+### LLM provider
+`LLM_PROVIDER` picks which model drives the apply_label/move_email decision loop:
+- `anthropic` (default): Claude, with the MCP tools passed as native tool-use tools, deciding and
+  calling them itself over several turns if needed. Requires `ANTHROPIC_API_KEY`.
+- `ollama`: Ollama's `/api/chat`, given the email, the AI service's analysis, and the available
+  tools' schemas as text, replies with structured JSON (`{"actions": [...], "reason": "..."}`),
+  and the orchestrator executes each chosen tool call itself. One shot per email, no native
+  tool-calling -- mirrors how `ai-service-fastapi` already talks to Ollama. Configure with
+  `OLLAMA_BASE_URL` / `OLLAMA_API_KEY` / `OLLAMA_MODEL` / `OLLAMA_FORMAT_MODE` / `OLLAMA_THINK` /
+  `OLLAMA_TIMEOUT_SECONDS` (see `.env.example`).
+
 To run locally without Docker:
 ```bash
 uv sync
@@ -24,13 +35,22 @@ uv run mcp-client
 ```
 
 ## Local end-to-end testing
-`mcp-server-rust` and `ai-service-fastapi` have no implementation yet. `tests/mock_mcp_server.py`
-and `tests/mock_ai_service.py` are fake stand-ins for them so this client can be run and verified
-on its own:
+`mcp-server-rust` still has no implementation, so `tests/mock_mcp_server.py` is required to run
+this client at all. `ai-service-fastapi` now has a real implementation (see its own README) and
+can be run directly instead of `tests/mock_ai_service.py` if you want a real classification.
+
+All commands below run from inside `mcp-client-python/` (set `ANTHROPIC_API_KEY`, or
+`LLM_PROVIDER=ollama` plus the `OLLAMA_*` vars, in `.env` first):
 ```bash
-# set ANTHROPIC_API_KEY in .env first
-# run from repo root, not inside mcp-client-python/
-uv run python -m mcp-client-python/tests/mock_mcp_server.py   # fake Rust server on :8080
-uv run python -m mcp-client-python/tests/mock_ai_service.py   # fake AI service on :8000
-uv run python -m mcp-client-python/mcp_client.py            # point .env at 127.0.0.1 for both URLs
+uv sync
+
+# Terminal 1: fake Rust server (always needed -- mcp-server-rust has no implementation yet)
+uv run python tests/mock_mcp_server.py   # :8080
+
+# Terminal 2: either the real AI service or its mock
+uv run python tests/mock_ai_service.py   # :8000, fake
+# -- or, from ai-service-fastapi/ instead: uv run uvicorn app.main:app --reload
+
+# Terminal 3: the client itself, with MCP_SERVER_URL/AI_SERVICE_URL in .env pointed at 127.0.0.1
+uv run mcp-client
 ```

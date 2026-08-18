@@ -8,6 +8,15 @@ services:
       - AI_SERVICE_URL=http://ai-service-fastapi:8000
       - MCP_SERVER_URL=http://mcp-server-rust:8080/mcp
       - POLL_INTERVAL_SECONDS=60
+      # LLM_PROVIDER picks which model drives the label/move decision loop.
+      - LLM_PROVIDER=${LLM_PROVIDER:-anthropic}
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-opus-5}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-https://ollama.com}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gpt-oss:20b}
+      - OLLAMA_FORMAT_MODE=${OLLAMA_FORMAT_MODE:-json}
+      - OLLAMA_THINK=${OLLAMA_THINK:-low}
+      - OLLAMA_TIMEOUT_SECONDS=${OLLAMA_TIMEOUT_SECONDS:-30}
     depends_on:
       - mcp-server-rust
       - ai-service-fastapi

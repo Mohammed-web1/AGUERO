@@ -15,12 +15,13 @@ The project is built on a modular, multi-container architecture using Docker Com
 graph TD
     A[mcp-client-python\nOrchestrator] --> B[mcp-server-rust\nConnector]
     A --> C[ai-service-fastapi\nIntelligence]
-    C --> E[Ollama API\nexternal]
+    A -.-> E[Ollama API\nexternal]
+    C --> E
     B <--> D[(Email Providers\nGmail/Outlook)]
 ```
 
 ### 1. `mcp-client-python/` (The Orchestrator)
-The brain of the operation. A Python-based MCP client that continuously monitors email accounts, sends content to the AI service for analysis, and commands the Rust server to apply labels or move messages.
+The brain of the operation. A Python-based MCP client that continuously monitors email accounts, sends content to the AI service for analysis, and commands the Rust server to apply labels or move messages. The decision itself is made by an LLM chosen via `LLM_PROVIDER`: Claude by default (native MCP tool-use), or Ollama (structured JSON decision, executed by the orchestrator) as a local/cheaper alternative.
 
 ### 2. `mcp-server-rust/` (The Connector)
 A high-performance Rust MCP server. It connects securely to IMAP/OAuth endpoints of email providers and exposes safe tools (e.g., `fetch_emails`, `move_email`) to the orchestrator.
@@ -37,7 +38,7 @@ external API for the classification itself; nothing runs it here. See
 
 To spin up the entire system locally:
 ```bash
-export ANTHROPIC_API_KEY=...   # used by the orchestrator
-export OLLAMA_API_KEY=...      # used by the AI service (free: ollama.com)
+export ANTHROPIC_API_KEY=...   # used by the orchestrator when LLM_PROVIDER=anthropic (default)
+export OLLAMA_API_KEY=...      # used by the AI service always, and by the orchestrator if LLM_PROVIDER=ollama
 docker compose up --build
 ```
