@@ -26,8 +26,11 @@ class Category(str, Enum):
 class AnalysisResult(BaseModel):
     """Response contract of ai-service-fastapi's POST /analyze.
 
-    ai-service-fastapi has no implementation yet; this shape is inferred from
-    its README and will need reconciling once the real service exists.
+    Deliberately duplicated rather than imported: the two services are separate
+    deployables with separate dependency sets, and this is the boundary each
+    validates independently. The service also returns `reason` and `source`,
+    which pydantic ignores here. Keep the enum values in step with
+    ai-service-fastapi/app/schemas.py.
     """
 
     threat_level: ThreatLevel
