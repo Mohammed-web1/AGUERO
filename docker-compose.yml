@@ -25,8 +25,13 @@ services:
     build:
       context: ./mcp-server-rust
     container_name: mcp-server-rust
+    ports:
+      - "8080:8080"
     environment:
       - RUST_LOG=info
+      - IMAP_SERVER=${IMAP_SERVER:-imap.gmail.com}
+      - IMAP_USER=${IMAP_USER:-test@gmail.com}
+      - IMAP_PASS=${IMAP_PASS:-testpass}
 
   ai-service-fastapi:
     build:
