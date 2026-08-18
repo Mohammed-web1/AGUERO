@@ -1,0 +1,19 @@
+[project]
+name = "aguero-ai-service"
+version = "0.1.0"
+description = "Email threat, urgency and category classification for the AGUERO platform"
+requires-python = ">=3.11"
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.pytest.ini_options]
+# Lets `pytest` find the `app` package from this directory, so tests need no
+# sys.path juggling of their own.
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 99
+target-version = "py311"

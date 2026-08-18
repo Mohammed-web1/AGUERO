@@ -1,6 +1,7 @@
 # Agent Rules and Workflows (As requested)
 .agents/
 .env
+.env.example
 # Rust / Cargo
 **/target/
 **/*.rs.bk
@@ -27,7 +28,7 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-
+.pytest_cache
 # Python Virtual Environments
 .env
 .venv
