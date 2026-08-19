@@ -145,10 +145,16 @@ pytest -q
 `app` package with no per-test path juggling.
 
 Covers the happy path, request shape and timeout sent upstream, truncation,
-bearer-token auth, both format modes, the `think` field, synonym normalisation, all four fallback paths (HTTP error,
-non-JSON, off-contract enum, empty), timeout, the fallback-disabled 503, health
-states, that the schema asks for every contract field, and that the prompt keeps
-untrusted email inside its delimiter.
+bearer-token auth, both format modes, the `think` field, synonym normalisation,
+all four fallback paths (HTTP error, non-JSON, off-contract enum, empty),
+timeout, the fallback-disabled 503, that the schema asks for every contract
+field, and that the prompt keeps untrusted email inside its delimiter.
+
+Health gets its own set: reachable and model present, model missing, Ollama
+down, and — the case that used to return 500 — reachable but answering with
+something unusable (an HTML error page, an empty body, a payload with no
+`models` list). A health check must report degradation, never become the
+outage, so every one of those asserts a 200 with `status: "degraded"`.
 
 ## Layout
 
@@ -161,7 +167,13 @@ untrusted email inside its delimiter.
 | [`app/prompts.py`](app/prompts.py) | System prompt, taxonomy, derived JSON schema |
 | [`app/normalize.py`](app/normalize.py) | Coerces synonym values onto the contract |
 | [`app/heuristics.py`](app/heuristics.py) | Keyword fallback classifier |
+| [`requirements.txt`](requirements.txt) | Runtime dependencies — all the image installs |
+| [`requirements-dev.txt`](requirements-dev.txt) | Test-only additions, on top of the above |
 | [`pyproject.toml`](pyproject.toml) | Packaging metadata, pytest and ruff config |
+
+The two requirements files are kept apart deliberately: the Dockerfile installs
+`requirements.txt` alone, so `pytest` and `respx` never reach the production
+image. Anything needed only to run the tests belongs in `requirements-dev.txt`.
 
 The contract's values live in exactly one place — the enums in `app/schemas.py`.
 The JSON schema sent to Ollama and the normaliser's lookup tables are both

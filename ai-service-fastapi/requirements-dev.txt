@@ -1,0 +1,5 @@
+# Test-only dependencies. The runtime image installs requirements.txt alone,
+# so nothing here ever ships to production.
+-r requirements.txt
+pytest>=8.0
+respx>=0.21
