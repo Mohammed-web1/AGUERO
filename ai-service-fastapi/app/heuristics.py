@@ -27,14 +27,16 @@ PHISHING_PATTERNS = (
 )
 
 SPAM_PATTERNS = (
-    r"(you('ve| have) )?won",
+    # The negative lookahead is what keeps "won't" out; a plain \b would still
+    # match it, since an apostrophe is a word boundary.
+    r"\b(you('ve| have) )?won(?!['’\w])",
     r"(claim|collect) your (prize|reward|bonus)",
     r"risk[- ]free",
     r"work from home",
     r"crypto(currency)? (investment|opportunity|signal)",
     r"(viagra|cialis|weight loss|miracle cure)",
     r"limited time offer",
-    r"act now",
+    r"\bact now\b",  # unanchored, this matched "contract now" and "exact now"
     r"unsubscribe here to stop",
 )
 
