@@ -174,6 +174,66 @@ def test_health_reports_degraded_when_ollama_is_down(client):
 
     assert body["status"] == "degraded"
     assert body["ollama_reachable"] is False
+    # Connection errors often stringify to "", so the type has to carry it.
+    assert "ConnectError" in body["detail"]
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    "answer",
+    [
+        httpx.Response(200, text="<html>502 Bad Gateway</html>"),
+        httpx.Response(200, text=""),
+        httpx.Response(200, json={"error": "unauthorized"}),
+        httpx.Response(200, json=[{"name": "not-a-dict-payload"}]),
+        httpx.Response(200, json={"models": "not-a-list"}),
+    ],
+    ids=["html-error-page", "empty-body", "no-models-key", "list-root", "models-not-a-list"],
+)
+def test_health_degrades_rather_than_500s_on_an_unusable_answer(client, answer):
+    """A reachable-but-broken endpoint used to raise and return 500.
+
+    That is the worst possible response from a health check: Docker marks the
+    container unhealthy and Compose refuses to start its dependents, while
+    /analyze is still perfectly able to answer from the fallback.
+    """
+    respx.get(TAGS_URL).mock(return_value=answer)
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert body["ollama_reachable"] is False
+    assert body["detail"]
+
+
+@respx.mock
+def test_health_ignores_malformed_entries_in_the_model_list(client):
+    """One bad entry must not hide the model that is actually present."""
+    respx.get(TAGS_URL).mock(
+        return_value=httpx.Response(200, json={"models": [None, "junk", {"name": "test-model"}]})
+    )
+
+    body = client.get("/health").json()
+
+    assert body["status"] == "ok"
+    assert body["model_available"] is True
+
+
+@respx.mock
+def test_health_is_unhealthy_when_nothing_can_answer(client, monkeypatch):
+    """With the fallback off, an unusable Ollama means the service really is dead."""
+    from app.config import get_settings
+
+    monkeypatch.setenv("ENABLE_HEURISTIC_FALLBACK", "false")
+    get_settings.cache_clear()
+
+    respx.get(TAGS_URL).mock(return_value=httpx.Response(200, text="<html>nope</html>"))
+
+    body = client.get("/health").json()
+
+    assert body["status"] == "unhealthy"
 
 
 @respx.mock

@@ -66,15 +66,18 @@ async def health(
     """
     try:
         models = await ollama.list_models()
-    except httpx.HTTPError as exc:
+    except OllamaError as exc:
+        # Every way of not getting a usable model list arrives as OllamaError,
+        # including a reachable endpoint answering with non-JSON. Reporting
+        # that as 500 would mark the container unhealthy over a degradation
+        # this service is designed to absorb.
         degraded_ok = settings.enable_heuristic_fallback
         return HealthResponse(
             status="degraded" if degraded_ok else "unhealthy",
             model=settings.ollama_model,
             ollama_base_url=settings.base_url,
             ollama_reachable=False,
-            # httpx connection errors often stringify to "", so name the type.
-            detail=f"Cannot reach Ollama: {type(exc).__name__}: {exc}".rstrip(": "),
+            detail=f"Cannot use Ollama: {exc}",
         )
 
     # Ollama reports tags as "name:tag"; an untagged config means ":latest".

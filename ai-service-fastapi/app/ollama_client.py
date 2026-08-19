@@ -107,11 +107,30 @@ class OllamaClient:
         return result
 
     async def list_models(self) -> list[str]:
-        """Model names Ollama currently has available; used by /health."""
-        response = await self._http.get(
-            f"{self._settings.base_url}/api/tags",
-            headers=self._headers,
-            timeout=self._settings.ollama_timeout_seconds,
-        )
-        response.raise_for_status()
-        return [model.get("name", "") for model in response.json().get("models", [])]
+        """Model names Ollama currently has available; used by /health.
+
+        Raises OllamaError for anything that stops a usable list coming back:
+        unreachable, an HTTP error, or -- the case that used to escape -- a
+        reachable endpoint answering with something that is not the JSON we
+        expect, such as a proxy's HTML error page. /health exists to report
+        degradation, so it must never fail on an unexpected answer itself.
+        """
+        try:
+            response = await self._http.get(
+                f"{self._settings.base_url}/api/tags",
+                headers=self._headers,
+                timeout=self._settings.ollama_timeout_seconds,
+            )
+            response.raise_for_status()
+            body = response.json()
+        except httpx.HTTPError as exc:
+            # Connection errors often stringify to "", so name the type too.
+            raise OllamaError(f"{type(exc).__name__}: {exc}".rstrip(": ")) from exc
+        except json.JSONDecodeError as exc:
+            raise OllamaError(f"/api/tags did not return JSON: {exc}") from exc
+
+        models = body.get("models") if isinstance(body, dict) else None
+        if not isinstance(models, list):
+            raise OllamaError(f"/api/tags returned an unexpected payload: {body!r:.200}")
+
+        return [model.get("name", "") for model in models if isinstance(model, dict)]
