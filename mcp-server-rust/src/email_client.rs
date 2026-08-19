@@ -7,10 +7,8 @@ use std::env;
 pub type ImapSession = Session<Compat<TlsStream<TcpStream>>>;
 
 /// Establishes a secure TLS connection to the IMAP server and logs in.
-pub async fn connect() -> Result<ImapSession, String> {
+pub async fn connect(username: String, password: String) -> Result<ImapSession, String> {
     let domain = env::var("IMAP_SERVER").unwrap_or_else(|_| "imap.gmail.com".to_string());
-    let username = env::var("IMAP_USER").map_err(|_| "Missing IMAP_USER environment variable")?;
-    let password = env::var("IMAP_PASS").map_err(|_| "Missing IMAP_PASS environment variable")?;
 
     eprintln!("Connecting to IMAP server at {}...", domain);
 

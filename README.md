@@ -15,6 +15,7 @@ The project is built on a modular, multi-container architecture using Docker Com
 graph TD
     A[mcp-client-python\nOrchestrator] --> B[mcp-server-rust\nConnector]
     A --> C[ai-service-fastapi\nIntelligence]
+    B --> F[(PostgreSQL\nCredentials & Logs)]
     A -.-> E[Ollama API\nexternal]
     C --> E
     B <--> D[(Email Providers\nGmail/Outlook)]
@@ -24,7 +25,7 @@ graph TD
 The brain of the operation. A Python-based MCP client that continuously monitors email accounts, sends content to the AI service for analysis, and commands the Rust server to apply labels or move messages. The decision itself is made by an LLM chosen via `LLM_PROVIDER`: Claude by default (native MCP tool-use), or Ollama (structured JSON decision, executed by the orchestrator) as a local/cheaper alternative.
 
 ### 2. `mcp-server-rust/` (The Connector)
-A high-performance Rust MCP server. It connects securely to IMAP/OAuth endpoints of email providers and exposes safe tools (e.g., `fetch_emails`, `move_email`) to the orchestrator.
+A high-performance Rust MCP server operating in dual-mode (Legacy `.env` or Multi-Tenant). It securely fetches user credentials from **PostgreSQL**, decrypts them dynamically via AES-256-GCM, connects to IMAP/OAuth endpoints, and executes safe tools (e.g., `fetch_emails`, `move_email`). It also automatically logs AI classification actions directly into the database.
 
 ### 3. `ai-service-fastapi/` (The Intelligence Engine)
 A Python FastAPI microservice exposing `POST /analyze`, which classifies one

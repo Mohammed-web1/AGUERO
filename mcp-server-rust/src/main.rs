@@ -1,5 +1,9 @@
 mod email_client;
 
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm, Key, Nonce,
+};
 use axum::{
     extract::{Query, State},
     response::{
@@ -12,7 +16,8 @@ use axum::{
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::HashMap, convert::Infallible, net::SocketAddr, sync::Arc};
+use sqlx::PgPool;
+use std::{collections::HashMap, convert::Infallible, env, net::SocketAddr, sync::Arc};
 use tokio::sync::{mpsc, RwLock};
 use tokio_stream::wrappers::ReceiverStream;
 use uuid::Uuid;
@@ -24,6 +29,8 @@ type SessionMap = Arc<RwLock<HashMap<String, mpsc::Sender<Result<Event, Infallib
 #[derive(Clone)]
 struct AppState {
     sessions: SessionMap,
+    db: PgPool,
+    encryption_key: [u8; 32],
 }
 
 // --- Strict API Contracts (JSON-RPC) ---
@@ -57,12 +64,53 @@ struct SessionQuery {
     session_id: String,
 }
 
+// --- Database & Encryption Helpers ---
+
+async fn get_credentials(
+    user_id_opt: Option<&str>,
+    state: &AppState,
+) -> Result<(String, String), String> {
+    if let Some(user_id) = user_id_opt {
+        // Multi-Tenant Mode: Fetch from Postgres
+        let row: Option<(String, Vec<u8>)> = sqlx::query_as("SELECT email, encrypted_password FROM users WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| format!("Database error: {}", e))?;
+
+        if let Some((email, encrypted_bytes)) = row {
+            if encrypted_bytes.len() < 12 {
+                return Err("Corrupted encrypted password (too short)".to_string());
+            }
+            let key = Key::<Aes256Gcm>::from_slice(&state.encryption_key);
+            let cipher = Aes256Gcm::new(key);
+            let nonce = Nonce::from_slice(&encrypted_bytes[0..12]);
+            let plaintext = cipher
+                .decrypt(nonce, &encrypted_bytes[12..])
+                .map_err(|_| "Failed to decrypt password".to_string())?;
+            let password = String::from_utf8(plaintext).map_err(|_| "Invalid UTF-8 in password".to_string())?;
+            
+            Ok((email, password))
+        } else {
+            Err(format!("User {} not found in database", user_id))
+        }
+    } else {
+        // Legacy Single-Tenant Mode (Backwards compatibility)
+        let email = env::var("IMAP_USER").map_err(|_| "Missing IMAP_USER environment variable")?;
+        let pass = env::var("IMAP_PASS").map_err(|_| "Missing IMAP_PASS environment variable")?;
+        Ok((email, pass))
+    }
+}
+
 // --- Tool Handlers ---
 
-async fn handle_fetch_unread_emails(_params: Option<Value>) -> Result<Value, String> {
-    eprintln!("Connecting to IMAP to fetch unread emails...");
+async fn handle_fetch_unread_emails(params: Option<Value>, state: AppState) -> Result<Value, String> {
+    let user_id = params.as_ref().and_then(|p| p.get("user_id")).and_then(Value::as_str);
+    let (username, password) = get_credentials(user_id, &state).await?;
+
+    eprintln!("Connecting to IMAP to fetch unread emails for {}...", username);
     
-    let mut session = email_client::connect().await?;
+    let mut session = email_client::connect(username, password).await?;
     session.select("INBOX").await.map_err(|e| format!("Failed to select INBOX: {}", e))?;
     
     let message_ids = session.search("UNSEEN").await.map_err(|e| format!("Search failed: {}", e))?;
@@ -81,13 +129,16 @@ async fn handle_fetch_unread_emails(_params: Option<Value>) -> Result<Value, Str
     }))
 }
 
-async fn handle_apply_label(params: Option<Value>) -> Result<Value, String> {
+async fn handle_apply_label(params: Option<Value>, state: AppState) -> Result<Value, String> {
     let params = params.ok_or("Missing parameters")?;
     let email_id = params.get("email_id").and_then(Value::as_str).ok_or("Missing 'email_id'")?;
     let label = params.get("label").and_then(Value::as_str).ok_or("Missing 'label'")?;
+    let user_id = params.get("user_id").and_then(Value::as_str);
+    
+    let (username, password) = get_credentials(user_id, &state).await?;
 
-    eprintln!("Connecting to IMAP to apply label '{}' to email '{}'...", label, email_id);
-    let mut session = email_client::connect().await?;
+    eprintln!("Connecting to IMAP to apply label '{}' to email '{}' for {}...", label, email_id, username);
+    let mut session = email_client::connect(username, password).await?;
     session.select("INBOX").await.map_err(|e| format!("Failed to select INBOX: {}", e))?;
     
     let query = format!("+FLAGS ({})", label);
@@ -95,8 +146,21 @@ async fn handle_apply_label(params: Option<Value>) -> Result<Value, String> {
         let mut stream = session.store(email_id, query).await.map_err(|e| format!("Failed to apply label: {}", e))?;
         while let Some(_) = stream.next().await {}
     }
-    
     let _ = session.logout().await;
+
+    // Save classification log to Database
+    if let Some(uid) = user_id {
+        let class_data = json!({
+            "action": "apply_label",
+            "applied_label": label
+        });
+        let _ = sqlx::query("INSERT INTO email_classifications (user_id, email_id, classification_data) VALUES ($1, $2, $3)")
+            .bind(uid)
+            .bind(email_id)
+            .bind(class_data)
+            .execute(&state.db)
+            .await;
+    }
 
     Ok(json!({
         "status": "success",
@@ -104,13 +168,16 @@ async fn handle_apply_label(params: Option<Value>) -> Result<Value, String> {
     }))
 }
 
-async fn handle_move_email(params: Option<Value>) -> Result<Value, String> {
+async fn handle_move_email(params: Option<Value>, state: AppState) -> Result<Value, String> {
     let params = params.ok_or("Missing parameters")?;
     let email_id = params.get("email_id").and_then(Value::as_str).ok_or("Missing 'email_id'")?;
     let folder = params.get("folder").and_then(Value::as_str).ok_or("Missing 'folder'")?;
+    let user_id = params.get("user_id").and_then(Value::as_str);
 
-    eprintln!("Connecting to IMAP to move email '{}' to folder '{}'...", email_id, folder);
-    let mut session = email_client::connect().await?;
+    let (username, password) = get_credentials(user_id, &state).await?;
+
+    eprintln!("Connecting to IMAP to move email '{}' to folder '{}' for {}...", email_id, folder, username);
+    let mut session = email_client::connect(username, password).await?;
     session.select("INBOX").await.map_err(|e| format!("Failed to select INBOX: {}", e))?;
     
     session.mv(email_id, folder).await.map_err(|e| format!("Failed to move email: {}", e))?;
@@ -130,11 +197,9 @@ async fn sse_handler(State(state): State<AppState>) -> Sse<ReceiverStream<Result
     let session_id = Uuid::new_v4().to_string();
     let (tx, rx) = mpsc::channel(10);
 
-    // Save the transmitter so we can send events to this client later
     state.sessions.write().await.insert(session_id.clone(), tx.clone());
     eprintln!("New SSE Client Connected. Session ID: {}", session_id);
 
-    // Send the mandatory MCP "endpoint" event telling the client where to POST messages
     let endpoint_url = format!("/message?session_id={}", session_id);
     let init_event = Event::default().event("endpoint").data(endpoint_url);
     let _ = tx.send(Ok(init_event)).await;
@@ -150,7 +215,6 @@ async fn message_handler(
 ) -> impl IntoResponse {
     let session_id = query.session_id;
 
-    // We process the request asynchronously so we can return a 202 Accepted quickly
     let state_clone = state.clone();
     tokio::spawn(async move {
         let mut error: Option<JsonRpcError> = None;
@@ -163,7 +227,12 @@ async fn message_handler(
                         {
                             "name": "fetch_unread_emails",
                             "description": "Fetches a list of unread emails from the inbox.",
-                            "inputSchema": { "type": "object", "properties": {} }
+                            "inputSchema": { 
+                                "type": "object", 
+                                "properties": {
+                                    "user_id": { "type": "string", "description": "Optional: User ID for multi-tenant mode" }
+                                } 
+                            }
                         },
                         {
                             "name": "apply_label",
@@ -172,7 +241,8 @@ async fn message_handler(
                                 "type": "object",
                                 "properties": {
                                     "email_id": { "type": "string" },
-                                    "label": { "type": "string" }
+                                    "label": { "type": "string" },
+                                    "user_id": { "type": "string", "description": "Optional: User ID for multi-tenant mode" }
                                 },
                                 "required": ["email_id", "label"]
                             }
@@ -184,7 +254,8 @@ async fn message_handler(
                                 "type": "object",
                                 "properties": {
                                     "email_id": { "type": "string" },
-                                    "folder": { "type": "string" }
+                                    "folder": { "type": "string" },
+                                    "user_id": { "type": "string", "description": "Optional: User ID for multi-tenant mode" }
                                 },
                                 "required": ["email_id", "folder"]
                             }
@@ -199,19 +270,19 @@ async fn message_handler(
                         
                         match tool_name {
                             "fetch_unread_emails" => {
-                                match handle_fetch_unread_emails(tool_args).await {
+                                match handle_fetch_unread_emails(tool_args, state_clone.clone()).await {
                                     Ok(res) => result = Some(res),
                                     Err(e) => error = Some(JsonRpcError { code: -32603, message: e }),
                                 }
                             }
                             "apply_label" => {
-                                match handle_apply_label(tool_args).await {
+                                match handle_apply_label(tool_args, state_clone.clone()).await {
                                     Ok(res) => result = Some(res),
                                     Err(e) => error = Some(JsonRpcError { code: -32602, message: e }),
                                 }
                             }
                             "move_email" => {
-                                match handle_move_email(tool_args).await {
+                                match handle_move_email(tool_args, state_clone.clone()).await {
                                     Ok(res) => result = Some(res),
                                     Err(e) => error = Some(JsonRpcError { code: -32602, message: e }),
                                 }
@@ -239,15 +310,12 @@ async fn message_handler(
             error,
         };
 
-        // Send the JSON-RPC response down the specific SSE connection
         if let Some(tx) = state_clone.sessions.read().await.get(&session_id) {
             let response_string = serde_json::to_string(&response).unwrap();
             let event = Event::default().event("message").data(response_string);
             if let Err(e) = tx.send(Ok(event)).await {
                 eprintln!("Failed to send SSE to {}: {}", session_id, e);
             }
-        } else {
-            eprintln!("Session {} not found!", session_id);
         }
     });
 
@@ -258,8 +326,42 @@ async fn message_handler(
 
 #[tokio::main]
 async fn main() {
+    let db_url = env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/mcp_db".to_string());
+    
+    eprintln!("Connecting to PostgreSQL database...");
+    let db = PgPool::connect(&db_url).await.expect("Failed to connect to PostgreSQL");
+
+    // Initialize Database Schema
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS users (
+            user_id VARCHAR PRIMARY KEY,
+            email VARCHAR NOT NULL,
+            encrypted_password BYTEA NOT NULL,
+            settings JSONB,
+            metadata JSONB
+        );"
+    ).execute(&db).await.expect("Failed to create users table");
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS email_classifications (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR NOT NULL,
+            email_id VARCHAR NOT NULL,
+            classification_data JSONB NOT NULL
+        );"
+    ).execute(&db).await.expect("Failed to create classifications table");
+
+    // Load Encryption Key
+    let key_str = env::var("ENCRYPTION_KEY").unwrap_or_else(|_| "0123456789abcdef0123456789abcdef".to_string());
+    let mut encryption_key = [0u8; 32];
+    let bytes = key_str.as_bytes();
+    let len = bytes.len().min(32);
+    encryption_key[..len].copy_from_slice(&bytes[..len]);
+
     let state = AppState {
         sessions: Arc::new(RwLock::new(HashMap::new())),
+        db,
+        encryption_key,
     };
 
     let app = Router::new()

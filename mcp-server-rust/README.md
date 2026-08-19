@@ -8,11 +8,21 @@ This server runs as a standalone Docker microservice over standard HTTP port `80
 - **`GET /mcp`**: Establish an SSE (Server-Sent Events) connection. The server replies with an `endpoint` event containing your unique Session URL.
 - **`POST /message?session_id=...`**: Post JSON-RPC 2.0 tool calls here. Responses are streamed asynchronously down the SSE channel.
 
+## Database & Security (Multi-Tenant Mode)
+This server features a "Dual-Mode" architecture:
+1. **Legacy Mode (Single-User):** If no `user_id` is provided in the tool call, the server defaults to reading credentials from the `.env` file.
+2. **Multi-Tenant Mode (PostgreSQL):** If a `user_id` is provided, the server queries the connected PostgreSQL database (`users` table). Passwords are encrypted in the database using **AES-256-GCM** and are dynamically decrypted in memory at runtime. Furthermore, the `apply_label` tool will automatically save a JSONB audit log of its actions to the `email_classifications` table!
+
 ## Tools Exposed & Schemas
 
 ### 1. `fetch_unread_emails`
 Connects via secure IMAP and retrieves new messages from the Inbox.
-- **Input:** `{}` (No arguments required)
+- **Input:** 
+  ```json
+  {
+    "user_id": "discord_123" // Optional. If omitted, uses .env
+  }
+  ```
 - **Output:**
   ```json
   {
@@ -26,6 +36,7 @@ Tags an email with a specific IMAP flag/label.
 - **Input:** 
   ```json
   {
+    "user_id": "discord_123", // Optional.
     "email_id": "123",
     "label": "Important"
   }
@@ -43,6 +54,7 @@ Moves an email to a specific IMAP folder.
 - **Input:**
   ```json
   {
+    "user_id": "discord_123", // Optional.
     "email_id": "123",
     "folder": "Quarantine"
   }
@@ -56,7 +68,7 @@ Moves an email to a specific IMAP folder.
   ```
 
 ## Development Approach
-This server is written in Rust using `axum` and `tokio` to ensure memory safety, massive concurrency, and reliable SSE streaming for the Model Context Protocol.
+This server is written in Rust using `axum`, `tokio`, and `sqlx` to ensure memory safety, massive concurrency, and reliable SSE streaming.
 
 To build and test locally:
 ```bash
