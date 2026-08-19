@@ -6,7 +6,10 @@ requires-python = ">=3.11"
 dynamic = ["dependencies"]
 
 [tool.setuptools.dynamic]
-dependencies = { file = ["requirements.txt"] }
+# The ranges, not the compiled pins: package metadata should state what the
+# service is compatible with, while requirements.txt states what a given image
+# actually installs.
+dependencies = { file = ["requirements.in"] }
 
 [tool.pytest.ini_options]
 # Lets `pytest` find the `app` package from this directory, so tests need no

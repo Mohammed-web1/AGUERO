@@ -1,0 +1,5 @@
+# Test-only dependencies, hand-edited. Compile to the pinned requirements-dev.txt with:
+#   uv pip compile requirements-dev.in -o requirements-dev.txt --python-version 3.11
+-r requirements.in
+pytest>=8.0
+respx>=0.21

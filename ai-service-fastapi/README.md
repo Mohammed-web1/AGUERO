@@ -167,13 +167,32 @@ outage, so every one of those asserts a 200 with `status: "degraded"`.
 | [`app/prompts.py`](app/prompts.py) | System prompt, taxonomy, derived JSON schema |
 | [`app/normalize.py`](app/normalize.py) | Coerces synonym values onto the contract |
 | [`app/heuristics.py`](app/heuristics.py) | Keyword fallback classifier |
-| [`requirements.txt`](requirements.txt) | Runtime dependencies — all the image installs |
-| [`requirements-dev.txt`](requirements-dev.txt) | Test-only additions, on top of the above |
+| [`requirements.in`](requirements.in) | Runtime dependencies, hand-edited ranges |
+| [`requirements.txt`](requirements.txt) | Compiled pins — all the image installs |
+| [`requirements-dev.in`](requirements-dev.in) | Test-only additions, hand-edited |
+| [`requirements-dev.txt`](requirements-dev.txt) | Compiled pins for the test environment |
 | [`pyproject.toml`](pyproject.toml) | Packaging metadata, pytest and ruff config |
 
-The two requirements files are kept apart deliberately: the Dockerfile installs
-`requirements.txt` alone, so `pytest` and `respx` never reach the production
-image. Anything needed only to run the tests belongs in `requirements-dev.txt`.
+## Dependencies
+
+Runtime and test dependencies are kept apart deliberately: the Dockerfile
+installs `requirements.txt` alone, so `pytest` and `respx` never reach the
+production image. Anything needed only to run the tests belongs in
+`requirements-dev.in`.
+
+The `.in` files hold hand-edited ranges; the `.txt` files are fully pinned,
+including transitive dependencies, so an image built today and one built in six
+months install byte-identical package sets. Edit the `.in` file, then recompile:
+
+```bash
+uv pip compile requirements.in     -o requirements.txt     --python-version 3.11
+uv pip compile requirements-dev.in -o requirements-dev.txt --python-version 3.11
+```
+
+`--python-version 3.11` matches the `python:3.11-slim` base image — resolving
+against a different interpreter can select packages that image cannot install.
+`pyproject.toml` reads the ranges from `requirements.in`, since package metadata
+should say what the service is compatible with rather than what one image pinned.
 
 The contract's values live in exactly one place — the enums in `app/schemas.py`.
 The JSON schema sent to Ollama and the normaliser's lookup tables are both
