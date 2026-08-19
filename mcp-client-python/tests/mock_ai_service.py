@@ -1,9 +1,13 @@
-"""Fake ai-service-fastapi, for local testing of mcp-client-python only.
+"""Fake ai-service-fastapi, for running mcp-client-python by hand.
 
-ai-service-fastapi has no implementation yet. This stub answers POST /analyze
-with simple keyword-based results matching its documented response shape, so
-the real client can be run and verified end to end without Docker. Stdlib
-only -- adds no new dependency to mcp-client-python.
+ai-service-fastapi is fully implemented and can be run directly instead of
+this; the stub only exists so the client can be driven without starting a
+second service or holding an Ollama key. It answers POST /analyze with simple
+keyword-based results matching the documented response shape. Stdlib only --
+adds no new dependency to mcp-client-python.
+
+This is a manual harness, not part of the test suite -- `pytest` mocks the AI
+service with `respx` and needs no server running.
 """
 
 from __future__ import annotations

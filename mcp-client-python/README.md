@@ -17,6 +17,17 @@ Copy `.env.example` to `.env` and fill in `ANTHROPIC_API_KEY`. Note this `.env` 
 the `environment:` block in the repo-root `docker-compose.yml`, which itself pulls
 `ANTHROPIC_API_KEY` from a separate repo-root `.env` via Compose's own variable substitution.
 
+### MCP transport
+`MCP_TRANSPORT` picks how the session to `MCP_SERVER_URL` is opened:
+- `auto` (default): the SDK negotiates, which means Streamable HTTP -- a `POST` to the server URL.
+  This is what `tests/mock_mcp_server.py` speaks.
+- `sse`: the older HTTP+SSE transport -- `GET` the server URL for the event stream, then `POST`
+  commands to the endpoint it advertises. This is what `mcp-server-rust` implements.
+
+The SDK does not fall back from one to the other, so a server that only speaks SSE has to be named
+as such. Note that `mcp-server-rust` still cannot complete a session either way: it has no
+`initialize` method, so the handshake fails after the transport connects.
+
 ### LLM provider
 `LLM_PROVIDER` picks which model drives the apply_label/move_email decision loop:
 - `anthropic` (default): Claude, with the MCP tools passed as native tool-use tools, deciding and
@@ -34,18 +45,35 @@ uv sync
 uv run mcp-client
 ```
 
+## Tests
+
+```bash
+uv sync
+uv run pytest -q
+```
+
+No network and no running services: the MCP server is replaced by `FakeMcpSession`
+(`tests/conftest.py`), and the AI service and Ollama are mocked with `respx`.
+
+Covers the full fetch -> analyze -> act cycle (phishing quarantined, safe mail left alone, whole
+batch processed), the failure paths that must not act on a mailbox (AI service down, Ollama down,
+a hallucinated tool name, a tool returning `is_error`), every response shape
+`unwrap_list_result` accepts, settings validation, the retry backoff, and transport selection.
+
 ## Local end-to-end testing
-`mcp-server-rust` still has no implementation, so `tests/mock_mcp_server.py` is required to run
-this client at all. `ai-service-fastapi` now has a real implementation (see its own README) and
-can be run directly instead of `tests/mock_ai_service.py` if you want a real classification.
+
+`mcp-server-rust` cannot complete an MCP handshake yet (see **MCP transport** above), so
+`tests/mock_mcp_server.py` is required to drive this client by hand. `ai-service-fastapi` is
+fully implemented and can be run directly instead of `tests/mock_ai_service.py` if you want a
+real classification.
 
 All commands below run from inside `mcp-client-python/` (set `ANTHROPIC_API_KEY`, or
 `LLM_PROVIDER=ollama` plus the `OLLAMA_*` vars, in `.env` first):
 ```bash
 uv sync
 
-# Terminal 1: fake Rust server (always needed -- mcp-server-rust has no implementation yet)
-uv run python tests/mock_mcp_server.py   # :8080
+# Terminal 1: fake Rust server (needed until mcp-server-rust implements `initialize`)
+uv run python tests/mock_mcp_server.py   # :8080, Streamable HTTP -- use MCP_TRANSPORT=auto
 
 # Terminal 2: either the real AI service or its mock
 uv run python tests/mock_ai_service.py   # :8000, fake

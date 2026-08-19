@@ -1,7 +1,8 @@
 # Agent Rules and Workflows (As requested)
 .agents/
 .env
-.env.example
+# NOTE: .env.example is deliberately NOT ignored -- it carries no secrets and is
+# the file both READMEs tell you to copy to .env.
 # Rust / Cargo
 **/target/
 **/*.rs.bk
@@ -59,5 +60,6 @@ Thumbs.db
 
 # Docker
 docker-compose.override.yml
-.dockerignore
+# NOTE: .dockerignore is deliberately NOT ignored -- without it a fresh clone
+# builds images with .env and .venv/ in the build context.
 test_mcp.py

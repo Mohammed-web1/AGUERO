@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any
+from contextlib import AsyncExitStack, asynccontextmanager
+from typing import Any, AsyncIterator, Protocol
 
 import anthropic
 import httpx
-from mcp.client import Client
+from mcp.client import Client, ClientSession
+from mcp.client.sse import sse_client
 
 from .ai_service import AIServiceError, analyze_email
 from .config import Settings, load_settings
@@ -18,6 +20,42 @@ from .schemas import AnalysisResult
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 5
+
+# A failing poll cycle backs off exponentially rather than hammering a server
+# that is down, but never waits longer than this between attempts.
+MAX_BACKOFF_SECONDS = 15 * 60
+
+
+class McpSession(Protocol):
+    """The slice of the MCP client API this orchestrator uses.
+
+    Both `mcp.client.Client` and `mcp.client.ClientSession` satisfy it, which is
+    what lets the transport be chosen at runtime.
+    """
+
+    async def list_tools(self, *args: Any, **kwargs: Any) -> Any: ...
+
+    async def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> Any: ...
+
+
+@asynccontextmanager
+async def open_mcp_session(settings: Settings) -> AsyncIterator[McpSession]:
+    """Open an MCP session using the configured transport.
+
+    `auto` hands the URL to the SDK, which negotiates Streamable HTTP. `sse`
+    opens the older HTTP+SSE transport explicitly; the SDK does not fall back to
+    it on its own, so a server that only speaks SSE needs it named.
+    """
+    if settings.mcp_transport == "sse":
+        async with sse_client(settings.mcp_server_url) as streams:
+            read_stream, write_stream = streams[0], streams[1]
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                yield session
+    else:
+        async with Client(settings.mcp_server_url) as client:
+            yield client
+
 
 CLAUDE_SYSTEM_PROMPT = """You are the triage agent for AGUERO, an email security and intelligence \
 platform. For each email you are shown, you will also be given a structured threat analysis \
@@ -38,7 +76,7 @@ to decide, using the available tools, what action (if any) to take on that speci
 
 async def _handle_email_with_claude(
     anthropic_client: anthropic.AsyncAnthropic,
-    mcp_client: Client,
+    mcp_client: McpSession,
     tools: list[dict],
     model: str,
     email: dict[str, Any],
@@ -88,11 +126,21 @@ async def _handle_email_with_claude(
                     }
                 )
         messages.append({"role": "user", "content": tool_results})
+    else:
+        # Budget exhausted with Claude still asking for tools. The calls made so
+        # far already took effect, so say so rather than letting the truncation
+        # look like a clean finish.
+        logger.warning(
+            "Claude still wanted tools after %d iterations for email %s; "
+            "stopping with its actions so far applied",
+            MAX_TOOL_ITERATIONS,
+            email.get("id"),
+        )
 
 
 async def _handle_email_with_ollama(
     ollama_decider: OllamaDecider,
-    mcp_client: Client,
+    mcp_client: McpSession,
     tools: list[dict[str, Any]],
     email: dict[str, Any],
     analysis: AnalysisResult,
@@ -131,7 +179,7 @@ async def handle_email(
     settings: Settings,
     anthropic_client: anthropic.AsyncAnthropic | None,
     ollama_decider: OllamaDecider | None,
-    mcp_client: Client,
+    mcp_client: McpSession,
     tools: list[dict[str, Any]],
     email: dict[str, Any],
     analysis: AnalysisResult,
@@ -152,7 +200,7 @@ async def run_once(
     ollama_decider: OllamaDecider | None,
     http_client: httpx.AsyncClient,
 ) -> None:
-    async with Client(settings.mcp_server_url) as mcp_client:
+    async with open_mcp_session(settings) as mcp_client:
         tools = to_anthropic_tools((await mcp_client.list_tools()).tools)
 
         fetched = await mcp_client.call_tool("fetch_unread_emails", {})
@@ -171,22 +219,47 @@ async def run_once(
             )
 
 
+def _backoff_seconds(settings: Settings, consecutive_failures: int) -> int:
+    """Delay before the next cycle: the poll interval, doubling while failing.
+
+    A dead MCP server or AI service is the common failure here, and retrying
+    every 60s indefinitely just fills the log. Capped so recovery is still
+    picked up within a reasonable window.
+    """
+    if consecutive_failures == 0:
+        return settings.poll_interval_seconds
+    delay = settings.poll_interval_seconds * 2**consecutive_failures
+    return min(delay, MAX_BACKOFF_SECONDS)
+
+
 async def run() -> None:
     settings = load_settings()
-    anthropic_client = (
-        anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-        if settings.llm_provider == "anthropic"
-        else None
-    )
 
-    async with httpx.AsyncClient() as http_client:
-        ollama_decider = OllamaDecider(settings, http_client) if settings.llm_provider == "ollama" else None
+    async with AsyncExitStack() as stack:
+        http_client = await stack.enter_async_context(httpx.AsyncClient())
+
+        anthropic_client: anthropic.AsyncAnthropic | None = None
+        ollama_decider: OllamaDecider | None = None
+        if settings.llm_provider == "anthropic":
+            anthropic_client = await stack.enter_async_context(
+                anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+            )
+        else:
+            ollama_decider = OllamaDecider(settings, http_client)
+
+        consecutive_failures = 0
         while True:
             try:
                 await run_once(settings, anthropic_client, ollama_decider, http_client)
+                consecutive_failures = 0
             except Exception:
-                logger.exception("Poll cycle failed; will retry next interval")
-            await asyncio.sleep(settings.poll_interval_seconds)
+                consecutive_failures += 1
+                logger.exception(
+                    "Poll cycle failed (%d in a row); retrying in %ds",
+                    consecutive_failures,
+                    _backoff_seconds(settings, consecutive_failures),
+                )
+            await asyncio.sleep(_backoff_seconds(settings, consecutive_failures))
 
 
 def main() -> None:

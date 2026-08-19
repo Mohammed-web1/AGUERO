@@ -1,9 +1,14 @@
-"""Fake mcp-server-rust, for local testing of mcp-client-python only.
+"""Fake mcp-server-rust, for running mcp-client-python by hand.
 
-mcp-server-rust has no implementation yet. This stub exposes the same three
-tools its README documents (fetch_unread_emails / apply_label / move_email)
-over Streamable HTTP, backed by fake in-memory emails, so the real client can
-be run and its full fetch -> analyze -> act loop verified end to end.
+mcp-server-rust is implemented, but does not yet complete an MCP handshake: it
+speaks the older HTTP+SSE transport (reachable with MCP_TRANSPORT=sse) and has
+no `initialize` method, so a session cannot be opened against it. This stub
+exposes the same three tools its README documents (fetch_unread_emails /
+apply_label / move_email) over Streamable HTTP, backed by fake in-memory
+emails, so the real client can be driven end to end in the meantime.
+
+This is a manual harness, not part of the test suite -- `pytest` covers the
+same loop with `FakeMcpSession` in conftest.py and needs no server running.
 """
 
 from __future__ import annotations

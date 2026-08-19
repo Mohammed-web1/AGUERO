@@ -19,6 +19,13 @@ class Settings:
     ollama_think: str | None
     ai_service_url: str
     mcp_server_url: str
+
+    # Which MCP transport to open. "auto" lets the SDK negotiate, which means
+    # Streamable HTTP (POST to the server URL). "sse" forces the older HTTP+SSE
+    # transport -- GET the server URL for the event stream, POST commands to the
+    # endpoint it advertises -- which is what mcp-server-rust implements.
+    mcp_transport: str  # "auto" or "sse"
+
     poll_interval_seconds: int
 
     @property
@@ -46,6 +53,10 @@ def load_settings() -> Settings:
             "Set it in mcp-client-python/.env or the environment."
         )
 
+    mcp_transport = os.environ.get("MCP_TRANSPORT", "auto").strip().lower()
+    if mcp_transport not in {"auto", "sse"}:
+        raise RuntimeError(f"MCP_TRANSPORT must be 'auto' or 'sse', got {mcp_transport!r}")
+
     return Settings(
         llm_provider=llm_provider,
         anthropic_api_key=anthropic_api_key,
@@ -58,5 +69,6 @@ def load_settings() -> Settings:
         ollama_think=os.environ.get("OLLAMA_THINK", "low"),
         ai_service_url=os.environ.get("AI_SERVICE_URL", "http://localhost:8000"),
         mcp_server_url=os.environ.get("MCP_SERVER_URL", "http://localhost:8080/mcp"),
+        mcp_transport=mcp_transport,
         poll_interval_seconds=int(os.environ.get("POLL_INTERVAL_SECONDS", "60")),
     )

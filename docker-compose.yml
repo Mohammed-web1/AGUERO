@@ -7,6 +7,9 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - AI_SERVICE_URL=http://ai-service-fastapi:8000
       - MCP_SERVER_URL=http://mcp-server-rust:8080/mcp
+      # mcp-server-rust speaks the older HTTP+SSE transport, not Streamable
+      # HTTP, so the SDK has to be told -- it does not fall back on its own.
+      - MCP_TRANSPORT=${MCP_TRANSPORT:-sse}
       - POLL_INTERVAL_SECONDS=60
       # LLM_PROVIDER picks which model drives the label/move decision loop.
       - LLM_PROVIDER=${LLM_PROVIDER:-anthropic}
