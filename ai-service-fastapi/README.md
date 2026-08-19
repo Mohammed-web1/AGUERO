@@ -34,8 +34,8 @@ against. `reason` and `source` are additive — pydantic ignores unknown fields,
 so the orchestrator is unaffected, while logs show *why* a verdict was reached
 and whether the model or the fallback produced it.
 
-Errors: `422` on empty content, `503` only when the model fails **and**
-`ENABLE_HEURISTIC_FALLBACK=false`.
+Errors: `422` on empty content, `413` on a body over `MAX_REQUEST_BYTES`, `503`
+only when the model fails **and** `ENABLE_HEURISTIC_FALLBACK=false`.
 
 ### `GET /health`
 
@@ -48,9 +48,15 @@ fallback can still answer — the service is degraded, not dead — and
 
 **The 10 second budget.** `mcp-client-python` gives up on `/analyze` after 10s
 ([`ai_service.py`](../mcp-client-python/src/mcp_client/ai_service.py)). The
-upstream call therefore defaults to an 8s timeout, leaving room to answer from
-the fallback instead of letting the orchestrator's poll cycle fail. Measured
-against `llama3.2` (3B) on CPU, a steady-state classification takes ~5.3s.
+upstream call therefore defaults to a 9s timeout
+([`OLLAMA_TIMEOUT_SECONDS`](app/config.py)), leaving a second to answer from the
+fallback instead of letting the orchestrator's poll cycle fail. Measured against
+`llama3.2` (3B) on CPU, a steady-state classification takes ~5.3s.
+
+That second is the whole margin, so the two numbers are coupled: raising
+`OLLAMA_TIMEOUT_SECONDS` past 9 without also raising the orchestrator's timeout
+means a slow model produces a failed poll cycle rather than a heuristic verdict.
+`tests/test_analyze.py` pins the 9s figure on the outgoing request.
 
 **Heuristic fallback.** When Ollama is unreachable, too slow, or answers
 off-contract, [`heuristics.py`](app/heuristics.py) answers from keyword patterns
@@ -98,6 +104,7 @@ environment (docker-compose passes them through).
 | `OLLAMA_TIMEOUT_SECONDS` | `9` | Must stay under the orchestrator's 10s timeout |
 | `OLLAMA_NUM_CTX` | `4096` | Context window |
 | `MAX_CONTENT_CHARS` | `6000` | Email text is truncated to this before analysis |
+| `MAX_REQUEST_BYTES` | `1048576` | Bodies larger than this are refused with `413` |
 | `ENABLE_HEURISTIC_FALLBACK` | `true` | `false` → return 503 instead of falling back |
 | `LOG_LEVEL` | `INFO` | |
 

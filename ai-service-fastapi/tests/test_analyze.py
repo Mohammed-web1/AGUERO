@@ -56,6 +56,26 @@ def test_analyze_returns_model_verdict(client):
     assert route.calls.last.request.extensions["timeout"]["read"] == 9.0
 
 
+def test_the_default_timeout_stays_inside_the_orchestrators_budget(monkeypatch):
+    """The 9s default and the orchestrator's 10s give-up are coupled.
+
+    conftest pins OLLAMA_TIMEOUT_SECONDS, so the assertion above about the
+    outgoing request cannot catch the *default* drifting. Raise this past the
+    orchestrator's timeout and a slow model yields a failed poll cycle instead
+    of the heuristic verdict the fallback exists to provide.
+    """
+    from app.config import Settings, get_settings
+
+    # mcp-client-python/src/mcp_client/ai_service.py passes timeout=10.0.
+    ORCHESTRATOR_ANALYZE_TIMEOUT = 10.0
+
+    monkeypatch.delenv("OLLAMA_TIMEOUT_SECONDS", raising=False)
+    get_settings.cache_clear()
+
+    assert Settings().ollama_timeout_seconds == 9.0
+    assert Settings().ollama_timeout_seconds < ORCHESTRATOR_ANALYZE_TIMEOUT
+
+
 @respx.mock
 def test_long_content_is_truncated_before_reaching_ollama(client):
     route = respx.post(CHAT_URL).mock(return_value=_chat_response())
@@ -119,6 +139,63 @@ def test_returns_503_when_fallback_disabled(client, monkeypatch):
 def test_empty_content_is_rejected(client):
     assert client.post("/analyze", json={"content": "   "}).status_code == 422
     assert client.post("/analyze", json={}).status_code == 422
+
+
+class TestRequestSizeLimit:
+    """Truncation happens after buffering, so the body has to be capped first."""
+
+    @respx.mock
+    def test_an_oversized_body_is_rejected_without_calling_ollama(self, client):
+        route = respx.post(CHAT_URL).mock(return_value=_chat_response())
+
+        response = client.post("/analyze", json={"content": "x" * 2_000_000})
+
+        assert response.status_code == 413
+        assert "exceeds" in response.json()["detail"]
+        # The point of rejecting early: no upstream work for a discarded body.
+        assert not route.called
+
+    @respx.mock
+    def test_an_ordinary_email_is_unaffected(self, client):
+        respx.post(CHAT_URL).mock(return_value=_chat_response())
+
+        assert client.post("/analyze", json={"content": PHISHING_EMAIL}).status_code == 200
+
+    @respx.mock
+    def test_a_body_just_under_the_limit_is_accepted(self, client):
+        """Still truncated to max_content_chars, but not refused."""
+        respx.post(CHAT_URL).mock(return_value=_chat_response())
+
+        response = client.post("/analyze", json={"content": "x" * 900_000})
+
+        assert response.status_code == 200
+
+    def test_a_malformed_content_length_is_a_400(self, client):
+        response = client.post(
+            "/analyze",
+            content=b'{"content":"hi"}',
+            headers={"Content-Type": "application/json", "Content-Length": "not-a-number"},
+        )
+        assert response.status_code == 400
+
+    @respx.mock
+    def test_the_limit_is_configurable(self, client, monkeypatch):
+        from app.config import get_settings
+
+        monkeypatch.setenv("MAX_REQUEST_BYTES", "500")
+        get_settings.cache_clear()
+        respx.post(CHAT_URL).mock(return_value=_chat_response())
+
+        assert client.post("/analyze", json={"content": "x" * 1000}).status_code == 413
+        assert client.post("/analyze", json={"content": "short"}).status_code == 200
+
+    def test_health_is_not_blocked_by_the_limit(self, client):
+        """A GET carries no body; the middleware must not interfere."""
+        with respx.mock:
+            respx.get(TAGS_URL).mock(
+                return_value=httpx.Response(200, json={"models": [{"name": "test-model"}]})
+            )
+            assert client.get("/health").status_code == 200
 
 
 @respx.mock

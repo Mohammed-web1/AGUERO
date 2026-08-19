@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     # headers and opening lines; the tail is mostly quoted threads and footers.
     max_content_chars: int = Field(default=6000, gt=0)
 
+    # Largest request body accepted at all. Truncation happens only after the
+    # whole body is buffered, so without this a 20MB POST is read into memory
+    # and then thrown away. Generous next to max_content_chars, since the point
+    # is to bound memory, not to police legitimate email size.
+    max_request_bytes: int = Field(default=1024 * 1024, gt=0)
+
     # When the model is unreachable, times out, or answers with something
     # unusable, answer from keyword heuristics instead of failing the request.
     enable_heuristic_fallback: bool = True

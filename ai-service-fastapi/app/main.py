@@ -6,6 +6,7 @@ from typing import AsyncIterator
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 
 from . import heuristics
 from .config import Settings, get_settings
@@ -48,6 +49,43 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def limit_request_size(request: Request, call_next):
+    """Reject oversized bodies before they are read into memory.
+
+    `max_content_chars` truncates the email text, but only once the whole body
+    has been buffered -- so a 20MB POST was previously read in full and then
+    discarded down to 6000 characters.
+
+    This checks the declared Content-Length, which covers any ordinary client.
+    A chunked request without that header still gets through to be buffered; a
+    hard byte cap belongs in the reverse proxy in front of this service, which
+    is the layer that can stop reading mid-stream.
+    """
+    settings = get_settings()
+    declared = request.headers.get("content-length")
+
+    if declared is not None:
+        try:
+            body_bytes = int(declared)
+        except ValueError:
+            return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length"})
+
+        if body_bytes > settings.max_request_bytes:
+            logger.warning(
+                "Rejected a %d byte request; limit is %d", body_bytes, settings.max_request_bytes
+            )
+            return JSONResponse(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                content={
+                    "detail": f"Request body of {body_bytes} bytes exceeds the "
+                    f"{settings.max_request_bytes} byte limit"
+                },
+            )
+
+    return await call_next(request)
 
 
 def get_ollama(request: Request) -> OllamaClient:
