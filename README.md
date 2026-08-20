@@ -37,9 +37,48 @@ external API for the classification itself; nothing runs it here. See
 
 ## Getting Started
 
-To spin up the entire system locally:
+### 1. Configure Environment Variables
+
+Copy `.env.example` to `.env` and fill in your secrets:
 ```bash
-export ANTHROPIC_API_KEY=...   # used by the orchestrator when LLM_PROVIDER=anthropic (default)
-export OLLAMA_API_KEY=...      # used by the AI service always, and by the orchestrator if LLM_PROVIDER=ollama
+cp .env.example .env
+# then edit .env with your credentials
+```
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `ANTHROPIC_API_KEY` | If using Claude | Used by `mcp-client-python` when `LLM_PROVIDER=anthropic` (default). |
+| `OLLAMA_API_KEY` | Always | Used by `ai-service-fastapi` for email classification. Get one at https://ollama.com/settings/keys |
+| `IMAP_USER` | Legacy mode only | Email address for single-user IMAP (bypass DB registration). |
+| `IMAP_PASS` | Legacy mode only | Gmail App Password for the single-user account. |
+| `ENCRYPTION_KEY` | Recommended | A 32-character random string used to AES-256-GCM encrypt all IMAP passwords in PostgreSQL. **Change the default before deploying!** |
+
+### 2. Start the System
+
+```bash
 docker compose up --build
+```
+
+All four containers start automatically. PostgreSQL is initialized with the schema on first boot.
+
+### 3. Register Users (Multi-Tenant Mode)
+
+To add a user to the database so the orchestrator can fetch their emails:
+```bash
+python register_user.py <user_id> <email> <imap_app_password>
+
+# Example:
+python register_user.py alice alice@gmail.com xxxx-yyyy-zzzz-aaaa
+```
+
+The script calls `POST /register` on the Rust server, which AES-256-GCM encrypts the password
+and stores it in PostgreSQL. Once registered, the orchestrator can pass `user_id` in any tool
+call to act on that account.
+
+### 4. Verify Health
+
+```bash
+curl http://localhost:8000/health   # AI service
+curl http://localhost:8080/mcp      # Rust MCP server (opens SSE stream)
+docker compose ps                   # All 4 containers should show "healthy" or "running"
 ```

@@ -7,6 +7,19 @@ This container acts as the secure, high-performance connector between the intern
 This server runs as a standalone Docker microservice over standard HTTP port `8080`.
 - **`GET /mcp`**: Establish an SSE (Server-Sent Events) connection. The server replies with an `endpoint` event containing your unique Session URL.
 - **`POST /message?session_id=...`**: Post JSON-RPC 2.0 tool calls here. Responses are streamed asynchronously down the SSE channel.
+- **`POST /register`**: Register a new user with their IMAP App Password. The server encrypts the password with AES-256-GCM before saving it to PostgreSQL.
+
+### User Registration Payload Example:
+```json
+POST http://localhost:8080/register
+Content-Type: application/json
+
+{
+  "user_id": "discord_john123",
+  "email": "john@gmail.com",
+  "app_password": "xxxx-yyyy-zzzz-aaaa"
+}
+```
 
 ## Database & Security (Multi-Tenant Mode)
 This server features a "Dual-Mode" architecture:
@@ -27,7 +40,16 @@ Connects via secure IMAP and retrieves new messages from the Inbox.
   ```json
   {
     "status": "success",
-    "unread_email_ids": ["123", "124", "125"]
+    "emails": [
+      {
+        "id": "123",
+        "subject": "Urgent Security Alert",
+        "sender": "security@example.com",
+        "date": "Wed, 19 Aug 2026 10:00:00 GMT",
+        "snippet": "Please verify your account credentials..."
+      }
+    ],
+    "unread_email_ids": ["123"]
   }
   ```
 
@@ -64,6 +86,30 @@ Moves an email to a specific IMAP folder.
   {
     "status": "success",
     "message": "Email '123' moved to folder 'Quarantine'"
+  }
+  ```
+
+### 4. `get_email_details`
+Retrieves full body text, envelope headers, and flags for a specific email ID for deep AI threat analysis.
+- **Input:**
+  ```json
+  {
+    "user_id": "discord_123", // Optional.
+    "email_id": "123"
+  }
+  ```
+- **Output:**
+  ```json
+  {
+    "status": "success",
+    "email": {
+      "id": "123",
+      "subject": "Urgent Security Alert",
+      "sender": "security@example.com",
+      "date": "Wed, 19 Aug 2026 10:00:00 GMT",
+      "flags": ["Seen"],
+      "body": "Full raw email body content..."
+    }
   }
   ```
 

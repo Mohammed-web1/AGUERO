@@ -25,8 +25,7 @@ the `environment:` block in the repo-root `docker-compose.yml`, which itself pul
   commands to the endpoint it advertises. This is what `mcp-server-rust` implements.
 
 The SDK does not fall back from one to the other, so a server that only speaks SSE has to be named
-as such. Note that `mcp-server-rust` still cannot complete a session either way: it has no
-`initialize` method, so the handshake fails after the transport connects.
+as such. Set `MCP_TRANSPORT=sse` (as in `docker-compose.yml`) when pointing at `mcp-server-rust`.
 
 ### LLM provider
 `LLM_PROVIDER` picks which model drives the apply_label/move_email decision loop:
@@ -62,22 +61,26 @@ a hallucinated tool name, a tool returning `is_error`), every response shape
 
 ## Local end-to-end testing
 
-`mcp-server-rust` cannot complete an MCP handshake yet (see **MCP transport** above), so
-`tests/mock_mcp_server.py` is required to drive this client by hand. `ai-service-fastapi` is
-fully implemented and can be run directly instead of `tests/mock_ai_service.py` if you want a
-real classification.
+`mcp-server-rust` is a fully functional MCP server that implements `initialize`, `tools/list`,
+and all four tool call handlers. You can run the full stack locally with `docker compose up`.
+`ai-service-fastapi` can also be run directly if you want a real classification instead of the mock.
 
 All commands below run from inside `mcp-client-python/` (set `ANTHROPIC_API_KEY`, or
 `LLM_PROVIDER=ollama` plus the `OLLAMA_*` vars, in `.env` first):
 ```bash
 uv sync
 
-# Terminal 1: fake Rust server (needed until mcp-server-rust implements `initialize`)
-uv run python tests/mock_mcp_server.py   # :8080, Streamable HTTP -- use MCP_TRANSPORT=auto
+# Option A: full stack via Docker Compose (recommended)
+# From the repo root:
+#   docker compose up --build
+
+# Option B: isolated local test (mock servers only)
+# Terminal 1: fake Rust server (Streamable HTTP -- use MCP_TRANSPORT=auto)
+uv run python tests/mock_mcp_server.py   # :8080
 
 # Terminal 2: either the real AI service or its mock
 uv run python tests/mock_ai_service.py   # :8000, fake
-# -- or, from ai-service-fastapi/ instead: uv run uvicorn app.main:app --reload
+# -- or, from ai-service-fastapi/ instead: uvicorn app.main:app --reload
 
 # Terminal 3: the client itself, with MCP_SERVER_URL/AI_SERVICE_URL in .env pointed at 127.0.0.1
 uv run mcp-client

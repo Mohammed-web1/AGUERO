@@ -116,15 +116,64 @@ async fn handle_fetch_unread_emails(params: Option<Value>, state: AppState) -> R
     let message_ids = session.search("UNSEEN").await.map_err(|e| format!("Search failed: {}", e))?;
     
     let mut ids = Vec::new();
-    for id in message_ids {
-        ids.push(id);
+    let mut emails = Vec::new();
+
+    for id in &message_ids {
+        ids.push(*id);
+    }
+
+    if !ids.is_empty() {
+        let seq_set = ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
+        let mut fetches = session
+            .fetch(&seq_set, "(ENVELOPE BODY.PEEK[TEXT])")
+            .await
+            .map_err(|e| format!("Fetch failed: {}", e))?;
+
+        while let Some(msg) = fetches.next().await {
+            let msg = msg.map_err(|e| format!("Fetch message error: {}", e))?;
+            let email_id = msg.message.to_string();
+
+            let mut subject = String::new();
+            let mut sender = String::new();
+            let mut date = String::new();
+
+            if let Some(env) = msg.envelope() {
+                if let Some(s) = &env.subject {
+                    subject = String::from_utf8_lossy(s).to_string();
+                }
+                if let Some(from_addrs) = &env.from {
+                    if let Some(addr) = from_addrs.first() {
+                        let mailbox = addr.mailbox.as_ref().map(|m| String::from_utf8_lossy(m)).unwrap_or_default();
+                        let host = addr.host.as_ref().map(|h| String::from_utf8_lossy(h)).unwrap_or_default();
+                        sender = format!("{}@{}", mailbox, host);
+                    }
+                }
+                if let Some(d) = &env.date {
+                    date = String::from_utf8_lossy(d).to_string();
+                }
+            }
+
+            let snippet = msg
+                .text()
+                .map(|t| String::from_utf8_lossy(t).chars().take(500).collect::<String>())
+                .unwrap_or_default();
+
+            emails.push(json!({
+                "id": email_id,
+                "subject": subject,
+                "sender": sender,
+                "date": date,
+                "snippet": snippet
+            }));
+        }
     }
     
-    eprintln!("Found {} unread emails.", ids.len());
+    eprintln!("Found {} unread emails with full metadata.", emails.len());
     let _ = session.logout().await;
 
     Ok(json!({
         "status": "success",
+        "emails": emails,
         "unread_email_ids": ids
     }))
 }
@@ -188,6 +237,76 @@ async fn handle_move_email(params: Option<Value>, state: AppState) -> Result<Val
         "status": "success",
         "message": format!("Email '{}' moved to folder '{}'", email_id, folder)
     }))
+}
+
+async fn handle_get_email_details(params: Option<Value>, state: AppState) -> Result<Value, String> {
+    let params = params.ok_or("Missing parameters")?;
+    let email_id = params.get("email_id").and_then(Value::as_str).ok_or("Missing 'email_id'")?;
+    let user_id = params.get("user_id").and_then(Value::as_str);
+
+    let (username, password) = get_credentials(user_id, &state).await?;
+
+    eprintln!("Connecting to IMAP to fetch full details for email '{}' ({})", email_id, username);
+    let mut session = email_client::connect(username, password).await?;
+    session.select("INBOX").await.map_err(|e| format!("Failed to select INBOX: {}", e))?;
+
+    let mut fetches = session
+        .fetch(email_id, "(ENVELOPE BODY.PEEK[TEXT] FLAGS)")
+        .await
+        .map_err(|e| format!("Fetch failed for email {}: {}", email_id, e))?;
+
+    let mut email_data = None;
+
+    if let Some(msg) = fetches.next().await {
+        let msg = msg.map_err(|e| format!("Fetch message error: {}", e))?;
+        
+        let mut subject = String::new();
+        let mut sender = String::new();
+        let mut date = String::new();
+
+        if let Some(env) = msg.envelope() {
+            if let Some(s) = &env.subject {
+                subject = String::from_utf8_lossy(s).to_string();
+            }
+            if let Some(from_addrs) = &env.from {
+                if let Some(addr) = from_addrs.first() {
+                    let mailbox = addr.mailbox.as_ref().map(|m| String::from_utf8_lossy(m)).unwrap_or_default();
+                    let host = addr.host.as_ref().map(|h| String::from_utf8_lossy(h)).unwrap_or_default();
+                    sender = format!("{}@{}", mailbox, host);
+                }
+            }
+            if let Some(d) = &env.date {
+                date = String::from_utf8_lossy(d).to_string();
+            }
+        }
+
+        let body = msg
+            .text()
+            .map(|t| String::from_utf8_lossy(t).to_string())
+            .unwrap_or_default();
+
+        let flags: Vec<String> = msg.flags().map(|f| format!("{:?}", f)).collect();
+
+        email_data = Some(json!({
+            "id": email_id,
+            "subject": subject,
+            "sender": sender,
+            "date": date,
+            "flags": flags,
+            "body": body
+        }));
+    }
+    drop(fetches);
+
+    let _ = session.logout().await;
+
+    match email_data {
+        Some(data) => Ok(json!({
+            "status": "success",
+            "email": data
+        })),
+        None => Err(format!("Email with ID {} not found", email_id)),
+    }
 }
 
 // --- Axum Handlers ---
@@ -259,6 +378,18 @@ async fn message_handler(
                                 },
                                 "required": ["email_id", "folder"]
                             }
+                        },
+                        {
+                            "name": "get_email_details",
+                            "description": "Fetches full body text, envelope headers, and flags for a specific email ID.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "email_id": { "type": "string" },
+                                    "user_id": { "type": "string", "description": "Optional: User ID for multi-tenant mode" }
+                                },
+                                "required": ["email_id"]
+                            }
                         }
                     ]
                 }));
@@ -287,6 +418,12 @@ async fn message_handler(
                                     Err(e) => error = Some(JsonRpcError { code: -32602, message: e }),
                                 }
                             }
+                            "get_email_details" => {
+                                match handle_get_email_details(tool_args, state_clone.clone()).await {
+                                    Ok(res) => result = Some(res),
+                                    Err(e) => error = Some(JsonRpcError { code: -32602, message: e }),
+                                }
+                            }
                             _ => {
                                 error = Some(JsonRpcError { code: -32601, message: format!("Tool not found: {}", tool_name) });
                             }
@@ -298,28 +435,107 @@ async fn message_handler(
                     error = Some(JsonRpcError { code: -32602, message: "Missing params object".to_string() });
                 }
             }
+            "initialize" => {
+                result = Some(json!({
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {
+                        "tools": {}
+                    },
+                    "serverInfo": {
+                        "name": "aguero-mcp-server",
+                        "version": "0.1.0"
+                    }
+                }));
+            }
+            "notifications/initialized" => {
+                // Just acknowledge, no response needed for notifications usually, 
+                // but we can return an empty result to avoid error.
+                result = Some(json!({}));
+            }
+            "ping" => {
+                result = Some(json!({}));
+            }
             _ => {
                 error = Some(JsonRpcError { code: -32601, message: format!("Method not found: {}", request.method) });
             }
         }
 
-        let response = JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id: request.id,
-            result,
-            error,
-        };
+        if request.id.is_some() {
+            let response = JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                id: request.id,
+                result,
+                error,
+            };
 
-        if let Some(tx) = state_clone.sessions.read().await.get(&session_id) {
-            let response_string = serde_json::to_string(&response).unwrap();
-            let event = Event::default().event("message").data(response_string);
-            if let Err(e) = tx.send(Ok(event)).await {
-                eprintln!("Failed to send SSE to {}: {}", session_id, e);
+            if let Some(tx) = state_clone.sessions.read().await.get(&session_id) {
+                let response_string = serde_json::to_string(&response).unwrap();
+                let event = Event::default().event("message").data(response_string);
+                if let Err(e) = tx.send(Ok(event)).await {
+                    eprintln!("Failed to send SSE to {}: {}", session_id, e);
+                }
             }
         }
     });
 
     axum::http::StatusCode::ACCEPTED
+}
+
+#[derive(Deserialize)]
+struct RegisterUserPayload {
+    user_id: String,
+    email: String,
+    app_password: String,
+    settings: Option<Value>,
+    metadata: Option<Value>,
+}
+
+async fn register_user_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<RegisterUserPayload>,
+) -> Result<impl IntoResponse, (axum::http::StatusCode, String)> {
+    use rand::Rng;
+
+    let key = Key::<Aes256Gcm>::from_slice(&state.encryption_key);
+    let cipher = Aes256Gcm::new(key);
+    
+    let mut nonce_bytes = [0u8; 12];
+    rand::rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    let ciphertext = cipher
+        .encrypt(nonce, payload.app_password.as_bytes())
+        .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Encryption failed: {}", e)))?;
+
+    let mut encrypted_payload = nonce_bytes.to_vec();
+    encrypted_payload.extend(ciphertext);
+
+    let settings_json = payload.settings.unwrap_or(json!({}));
+    let metadata_json = payload.metadata.unwrap_or(json!({}));
+
+    sqlx::query(
+        "INSERT INTO users (user_id, email, encrypted_password, settings, metadata) 
+         VALUES ($1, $2, $3, $4, $5) 
+         ON CONFLICT (user_id) DO UPDATE SET 
+         email = EXCLUDED.email, 
+         encrypted_password = EXCLUDED.encrypted_password, 
+         settings = EXCLUDED.settings, 
+         metadata = EXCLUDED.metadata"
+    )
+    .bind(&payload.user_id)
+    .bind(&payload.email)
+    .bind(&encrypted_payload)
+    .bind(&settings_json)
+    .bind(&metadata_json)
+    .execute(&state.db)
+    .await
+    .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Database insert failed: {}", e)))?;
+
+    Ok(Json(json!({
+        "status": "success",
+        "message": format!("User '{}' successfully registered and encrypted in PostgreSQL", payload.user_id),
+        "user_id": payload.user_id
+    })))
 }
 
 // --- Main Entrypoint ---
@@ -367,6 +583,7 @@ async fn main() {
     let app = Router::new()
         .route("/mcp", get(sse_handler))
         .route("/message", post(message_handler))
+        .route("/register", post(register_user_handler))
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
@@ -374,4 +591,37 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_aes_encryption_decryption_roundtrip() {
+        use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Key, Nonce};
+        use rand::Rng;
+
+        let mut key_bytes = [0u8; 32];
+        key_bytes.copy_from_slice(b"0123456789abcdef0123456789abcdef");
+        let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+        let cipher = Aes256Gcm::new(key);
+
+        let mut nonce_bytes = [0u8; 12];
+        rand::rng().fill_bytes(&mut nonce_bytes);
+        let nonce = Nonce::from_slice(&nonce_bytes);
+
+        let password = "my_secret_app_password_1234";
+        let ciphertext = cipher.encrypt(nonce, password.as_bytes()).expect("encryption failed");
+
+        let mut encrypted_payload = nonce_bytes.to_vec();
+        encrypted_payload.extend(ciphertext);
+
+        // Decrypt
+        let dec_nonce = Nonce::from_slice(&encrypted_payload[0..12]);
+        let plaintext = cipher.decrypt(dec_nonce, &encrypted_payload[12..]).expect("decryption failed");
+        let decrypted_password = String::from_utf8(plaintext).expect("utf8 failed");
+
+        assert_eq!(password, decrypted_password);
+    }
 }
