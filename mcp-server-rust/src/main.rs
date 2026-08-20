@@ -405,29 +405,61 @@ async fn message_handler(
                     if let Some(tool_name) = params.get("name").and_then(Value::as_str) {
                         let tool_args = params.get("arguments").cloned();
                         
+                        // Helper: wrap a tool result in the MCP-compliant CallToolResult shape.
+                        // The Python MCP SDK validates that `content` is present; without it
+                        // a ValidationError is raised and the session is dropped.
+                        let wrap = |res: Value| -> Value {
+                            let text = serde_json::to_string_pretty(&res).unwrap_or_default();
+                            json!({
+                                "content": [{ "type": "text", "text": text }],
+                                "structuredContent": res,
+                                "isError": false
+                            })
+                        };
+
                         match tool_name {
                             "fetch_unread_emails" => {
                                 match handle_fetch_unread_emails(tool_args, state_clone.clone()).await {
-                                    Ok(res) => result = Some(res),
-                                    Err(e) => error = Some(JsonRpcError { code: -32603, message: e }),
+                                    Ok(res) => result = Some(wrap(res)),
+                                    Err(e) => {
+                                        result = Some(json!({
+                                            "content": [{ "type": "text", "text": e }],
+                                            "isError": true
+                                        }));
+                                    }
                                 }
                             }
                             "apply_label" => {
                                 match handle_apply_label(tool_args, state_clone.clone()).await {
-                                    Ok(res) => result = Some(res),
-                                    Err(e) => error = Some(JsonRpcError { code: -32602, message: e }),
+                                    Ok(res) => result = Some(wrap(res)),
+                                    Err(e) => {
+                                        result = Some(json!({
+                                            "content": [{ "type": "text", "text": e }],
+                                            "isError": true
+                                        }));
+                                    }
                                 }
                             }
                             "move_email" => {
                                 match handle_move_email(tool_args, state_clone.clone()).await {
-                                    Ok(res) => result = Some(res),
-                                    Err(e) => error = Some(JsonRpcError { code: -32602, message: e }),
+                                    Ok(res) => result = Some(wrap(res)),
+                                    Err(e) => {
+                                        result = Some(json!({
+                                            "content": [{ "type": "text", "text": e }],
+                                            "isError": true
+                                        }));
+                                    }
                                 }
                             }
                             "get_email_details" => {
                                 match handle_get_email_details(tool_args, state_clone.clone()).await {
-                                    Ok(res) => result = Some(res),
-                                    Err(e) => error = Some(JsonRpcError { code: -32602, message: e }),
+                                    Ok(res) => result = Some(wrap(res)),
+                                    Err(e) => {
+                                        result = Some(json!({
+                                            "content": [{ "type": "text", "text": e }],
+                                            "isError": true
+                                        }));
+                                    }
                                 }
                             }
                             _ => {
@@ -441,6 +473,7 @@ async fn message_handler(
                     error = Some(JsonRpcError { code: -32602, message: "Missing params object".to_string() });
                 }
             }
+
             "initialize" => {
                 result = Some(json!({
                     "protocolVersion": "2024-11-05",
