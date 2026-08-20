@@ -29,27 +29,29 @@ This server features a "Dual-Mode" architecture:
 ## Tools Exposed & Schemas
 
 ### 1. `fetch_unread_emails`
-Connects via secure IMAP and retrieves new messages from the Inbox.
+Connects via secure IMAP and retrieves the most-recent unread messages (envelope only) from the Inbox.
+Use `get_email_details` for full body content on a specific email.
 - **Input:** 
   ```json
   {
-    "user_id": "discord_123" // Optional. If omitted, uses .env
+    "user_id": "discord_123", // Optional. If omitted, uses .env
+    "limit": 25               // Optional. Max emails per poll cycle (default: 25)
   }
   ```
 - **Output:**
   ```json
   {
     "status": "success",
+    "total_unread": 2173,
+    "returned": 25,
     "emails": [
       {
         "id": "123",
         "subject": "Urgent Security Alert",
         "sender": "security@example.com",
-        "date": "Wed, 19 Aug 2026 10:00:00 GMT",
-        "snippet": "Please verify your account credentials..."
+        "date": "Wed, 19 Aug 2026 10:00:00 GMT"
       }
-    ],
-    "unread_email_ids": ["123"]
+    ]
   }
   ```
 

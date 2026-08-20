@@ -106,26 +106,36 @@ async fn get_credentials(
 
 async fn handle_fetch_unread_emails(params: Option<Value>, state: AppState) -> Result<Value, String> {
     let user_id = params.as_ref().and_then(|p| p.get("user_id")).and_then(Value::as_str);
+    // Limit how many emails are returned per poll cycle to avoid huge SSE payloads.
+    // The orchestrator calls get_email_details per-email for the full body anyway.
+    let limit = params.as_ref()
+        .and_then(|p| p.get("limit"))
+        .and_then(Value::as_u64)
+        .unwrap_or(25) as usize;
+
     let (username, password) = get_credentials(user_id, &state).await?;
 
-    eprintln!("Connecting to IMAP to fetch unread emails for {}...", username);
+    eprintln!("Connecting to IMAP to fetch unread emails for {} (limit={})...", username, limit);
     
     let mut session = email_client::connect(username, password).await?;
     session.select("INBOX").await.map_err(|e| format!("Failed to select INBOX: {}", e))?;
     
     let message_ids = session.search("UNSEEN").await.map_err(|e| format!("Search failed: {}", e))?;
     
-    let mut ids = Vec::new();
+    // Take the most-recent N ids (IMAP ids are ascending; sort then take from end).
+    // message_ids is a HashSet so we must collect + sort before reversing.
+    let total_unread = message_ids.len();
+    let mut sorted_ids: Vec<u32> = message_ids.iter().copied().collect();
+    sorted_ids.sort_unstable();
+    let ids: Vec<u32> = sorted_ids.into_iter().rev().take(limit).collect();
     let mut emails = Vec::new();
 
-    for id in &message_ids {
-        ids.push(*id);
-    }
-
     if !ids.is_empty() {
+        // Fetch envelope only — no body — for the list view.
+        // Body is fetched on demand by get_email_details.
         let seq_set = ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
         let mut fetches = session
-            .fetch(&seq_set, "(ENVELOPE BODY.PEEK[TEXT])")
+            .fetch(&seq_set, "ENVELOPE")
             .await
             .map_err(|e| format!("Fetch failed: {}", e))?;
 
@@ -153,28 +163,23 @@ async fn handle_fetch_unread_emails(params: Option<Value>, state: AppState) -> R
                 }
             }
 
-            let snippet = msg
-                .text()
-                .map(|t| String::from_utf8_lossy(t).chars().take(500).collect::<String>())
-                .unwrap_or_default();
-
             emails.push(json!({
                 "id": email_id,
                 "subject": subject,
                 "sender": sender,
-                "date": date,
-                "snippet": snippet
+                "date": date
             }));
         }
     }
     
-    eprintln!("Found {} unread emails with full metadata.", emails.len());
+    eprintln!("Returning {}/{} unread emails.", emails.len(), total_unread);
     let _ = session.logout().await;
 
     Ok(json!({
         "status": "success",
         "emails": emails,
-        "unread_email_ids": ids
+        "total_unread": total_unread,
+        "returned": emails.len()
     }))
 }
 
@@ -345,11 +350,12 @@ async fn message_handler(
                     "tools": [
                         {
                             "name": "fetch_unread_emails",
-                            "description": "Fetches a list of unread emails from the inbox.",
+                            "description": "Fetches a list of unread emails from the inbox. Returns envelope metadata only (no body). Use get_email_details for full body content.",
                             "inputSchema": { 
                                 "type": "object", 
                                 "properties": {
-                                    "user_id": { "type": "string", "description": "Optional: User ID for multi-tenant mode" }
+                                    "user_id": { "type": "string", "description": "Optional: User ID for multi-tenant mode" },
+                                    "limit": { "type": "integer", "description": "Max number of emails to return per call (default: 25, max recommended: 100)" }
                                 } 
                             }
                         },
