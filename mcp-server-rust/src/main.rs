@@ -20,6 +20,7 @@ use sqlx::PgPool;
 use std::{collections::HashMap, convert::Infallible, env, net::SocketAddr, sync::Arc};
 use tokio::sync::{mpsc, RwLock};
 use tokio_stream::wrappers::ReceiverStream;
+use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
 
 // --- Shared State for SSE Sessions ---
@@ -577,6 +578,28 @@ async fn register_user_handler(
     })))
 }
 
+#[derive(Serialize)]
+struct UserResponse {
+    user_id: String,
+    email: String,
+}
+
+async fn get_users_handler(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<UserResponse>>, (axum::http::StatusCode, String)> {
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT user_id, email FROM users")
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Database query failed: {}", e)))?;
+
+    let users: Vec<UserResponse> = rows
+        .into_iter()
+        .map(|(user_id, email)| UserResponse { user_id, email })
+        .collect();
+
+    Ok(Json(users))
+}
+
 // --- Main Entrypoint ---
 
 #[tokio::main]
@@ -619,10 +642,17 @@ async fn main() {
         encryption_key,
     };
 
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
     let app = Router::new()
         .route("/mcp", get(sse_handler))
         .route("/message", post(message_handler))
         .route("/register", post(register_user_handler))
+        .route("/users", get(get_users_handler))
+        .layer(cors)
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));

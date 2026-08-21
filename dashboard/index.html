@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AGUERO — Email Intelligence Platform</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #080c14;
+      --surface: #0e1420;
+      --surface2: #141d2e;
+      --surface3: #1a2540;
+      --border: rgba(99,140,255,0.12);
+      --accent: #4f8cff;
+      --accent2: #6c63ff;
+      --text: #e8edf5;
+      --text-muted: #7a8aaa;
+      --danger: #ff4f6a;
+      --warn: #ffb830;
+      --success: #2ecc8a;
+      --safe: #2ecc8a;
+      --phishing: #ff4f6a;
+      --spam: #ffb830;
+    }
+
+    html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+
+    /* ── Layout ── */
+    .layout { display: flex; height: 100vh; }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 220px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 24px 0;
+    }
+    .logo {
+      padding: 0 20px 28px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo-icon {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+    }
+    .logo-text { font-weight: 800; font-size: 18px; letter-spacing: -0.5px; }
+    .logo-sub { font-size: 10px; color: var(--text-muted); letter-spacing: 0.5px; text-transform: uppercase; }
+
+    .nav { flex: 1; }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 20px;
+      cursor: pointer;
+      font-size: 14px; font-weight: 500;
+      color: var(--text-muted);
+      border-left: 3px solid transparent;
+      transition: all .2s;
+    }
+    .nav-item:hover { color: var(--text); background: rgba(79,140,255,0.05); }
+    .nav-item.active { color: var(--accent); border-left-color: var(--accent); background: rgba(79,140,255,0.08); }
+    .nav-item .icon { font-size: 16px; width: 20px; text-align: center; }
+
+    .status-bar {
+      margin: 12px 16px 0;
+      padding: 10px 12px;
+      background: var(--surface2);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+    .status-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 6px; }
+    .status-row { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 4px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .dot.green { background: var(--success); box-shadow: 0 0 6px var(--success); }
+    .dot.red { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+    .dot.yellow { background: var(--warn); }
+    .dot.pulse { animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    /* ── Main ── */
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    .topbar {
+      padding: 18px 28px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--surface);
+    }
+    .topbar-title { font-size: 20px; font-weight: 700; }
+    .topbar-sub { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+    .topbar-actions { display: flex; gap: 10px; }
+    .btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: none;
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #3a74e8; transform: translateY(-1px); }
+    .btn-ghost { background: var(--surface3); color: var(--text); border: 1px solid var(--border); }
+    .btn-ghost:hover { background: var(--surface2); }
+    .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+    /* ── Pages ── */
+    .page { display: none; flex: 1; overflow-y: auto; padding: 28px; }
+    .page.active { display: block; }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    .card-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+    .card-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 20px; }
+
+    /* ── Stats Row ── */
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+    .stat {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px;
+      position: relative;
+      overflow: hidden;
+      transition: transform .2s;
+    }
+    .stat:hover { transform: translateY(-2px); }
+    .stat::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0; height: 3px;
+      background: var(--accent-c, var(--accent));
+    }
+    .stat.danger::before { background: var(--phishing); }
+    .stat.warn::before { background: var(--spam); }
+    .stat.success::before { background: var(--success); }
+    .stat-icon { font-size: 22px; margin-bottom: 8px; }
+    .stat-value { font-size: 28px; font-weight: 800; line-height: 1; }
+    .stat-label { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+    /* ── Email Analyzer ── */
+    .analyzer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .email-input {
+      width: 100%; min-height: 220px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      line-height: 1.6;
+      resize: vertical;
+      transition: border-color .2s;
+      outline: none;
+    }
+    .email-input:focus { border-color: var(--accent); }
+
+    .verdict-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      min-height: 220px;
+      display: flex; flex-direction: column; justify-content: center;
+    }
+    .verdict-empty { text-align: center; color: var(--text-muted); font-size: 13px; }
+    .verdict-empty .icon { font-size: 36px; margin-bottom: 8px; display: block; }
+
+    .verdict-result { animation: fadeIn .4s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 13px; font-weight: 700;
+      margin-bottom: 14px;
+    }
+    .badge.phishing { background: rgba(255,79,106,.15); color: var(--phishing); border: 1px solid rgba(255,79,106,.3); }
+    .badge.spam { background: rgba(255,184,48,.12); color: var(--spam); border: 1px solid rgba(255,184,48,.3); }
+    .badge.safe { background: rgba(46,204,138,.12); color: var(--safe); border: 1px solid rgba(46,204,138,.3); }
+
+    .verdict-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+    .verdict-key { font-size: 12px; color: var(--text-muted); }
+    .verdict-val { font-size: 13px; font-weight: 600; }
+    .verdict-reason { font-size: 12px; color: var(--text-muted); line-height: 1.5; padding-top: 10px; border-top: 1px solid var(--border); margin-top: 8px; }
+
+    .spinner {
+      width: 24px; height: 24px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+      margin: 0 auto 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Quick Examples ── */
+    .examples { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .ex-chip {
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 12px; font-weight: 500;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text-muted);
+      transition: all .2s;
+    }
+    .ex-chip:hover { color: var(--text); border-color: var(--accent); }
+    .ex-chip.phishing-ex:hover { color: var(--phishing); border-color: var(--phishing); }
+    .ex-chip.spam-ex:hover { color: var(--spam); border-color: var(--spam); }
+    .ex-chip.safe-ex:hover { color: var(--safe); border-color: var(--safe); }
+
+    /* ── Register Form ── */
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 12px; align-items: end; }
+    .form-field { display: flex; flex-direction: column; gap: 6px; }
+    .form-label { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+    .form-input {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      outline: none;
+      transition: border-color .2s;
+      width: 100%;
+    }
+    .form-input:focus { border-color: var(--accent); }
+
+    .user-list { margin-top: 20px; display: flex; flex-direction: column; gap: 8px; }
+    .user-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      animation: fadeIn .3s ease;
+    }
+    .user-avatar {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700;
+      flex-shrink: 0;
+    }
+    .user-info { flex: 1; margin-left: 12px; }
+    .user-id { font-size: 13px; font-weight: 600; }
+    .user-email { font-size: 12px; color: var(--text-muted); }
+    .user-badge { font-size: 11px; padding: 3px 8px; background: rgba(46,204,138,.12); color: var(--success); border-radius: 20px; border: 1px solid rgba(46,204,138,.3); }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed; bottom: 24px; right: 24px;
+      padding: 12px 18px;
+      border-radius: 10px;
+      font-size: 13px; font-weight: 500;
+      z-index: 999;
+      animation: slideUp .3s ease;
+      max-width: 320px;
+    }
+    .toast.success { background: rgba(46,204,138,.15); color: var(--success); border: 1px solid rgba(46,204,138,.4); }
+    .toast.error { background: rgba(255,79,106,.15); color: var(--danger); border: 1px solid rgba(255,79,106,.4); }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ── Inbox ── */
+    .email-rows { display: flex; flex-direction: column; gap: 8px; }
+    .email-row {
+      display: flex; align-items: center; gap: 14px;
+      padding: 12px 16px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all .2s;
+      animation: fadeIn .3s ease;
+    }
+    .email-row:hover { border-color: var(--accent); background: rgba(79,140,255,.04); }
+    .email-threat { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .email-threat.Phishing { background: var(--phishing); box-shadow: 0 0 6px var(--phishing); }
+    .email-threat.Spam { background: var(--spam); }
+    .email-threat.Safe { background: var(--success); }
+    .email-sender { font-size: 13px; font-weight: 600; width: 160px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .email-subject { font-size: 13px; color: var(--text-muted); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .email-badge { flex-shrink: 0; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 3px; }
+
+    /* ── Health Page ── */
+    .health-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .health-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+    }
+    .health-card .h-icon { font-size: 28px; margin-bottom: 10px; }
+    .health-card .h-name { font-size: 15px; font-weight: 700; }
+    .health-card .h-status { font-size: 12px; margin-top: 6px; }
+    .h-ok { color: var(--success); }
+    .h-degraded { color: var(--warn); }
+    .h-down { color: var(--danger); }
+    .h-detail { font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.4; }
+  </style>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="logo-icon">🛡️</div>
+      <div>
+        <div class="logo-text">AGUERO</div>
+        <div class="logo-sub">Email Intelligence</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <div class="nav-item active" onclick="showPage('dashboard')">
+        <span class="icon">📊</span> Dashboard
+      </div>
+      <div class="nav-item" onclick="showPage('analyzer')">
+        <span class="icon">🔍</span> Analyze Email
+      </div>
+      <div class="nav-item" onclick="showPage('users')">
+        <span class="icon">👤</span> Users
+      </div>
+      <div class="nav-item" onclick="showPage('health')">
+        <span class="icon">❤️</span> System Health
+      </div>
+    </nav>
+
+    <div class="status-bar">
+      <div class="status-label">Live Status</div>
+      <div class="status-row" id="sb-ai">
+        <div class="dot yellow" id="dot-ai"></div>
+        <span id="label-ai">AI Engine…</span>
+      </div>
+      <div class="status-row" id="sb-mcp">
+        <div class="dot yellow" id="dot-mcp"></div>
+        <span id="label-mcp">MCP Server…</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <div class="topbar-title" id="page-title">Dashboard</div>
+        <div class="topbar-sub" id="page-sub">Real-time email intelligence overview</div>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn btn-primary" id="sim-btn" onclick="toggleSimulation()">▶ Simulate Live Traffic</button>
+        <button class="btn btn-ghost" onclick="refreshHealth()">🔄 Refresh Status</button>
+      </div>
+    </div>
+
+    <!-- ── Dashboard Page ── -->
+    <div class="page active" id="page-dashboard">
+      <div class="stats">
+        <div class="stat danger">
+          <div class="stat-icon">🎣</div>
+          <div class="stat-value" id="stat-phishing">0</div>
+          <div class="stat-label">Phishing Detected</div>
+        </div>
+        <div class="stat warn">
+          <div class="stat-icon">📢</div>
+          <div class="stat-value" id="stat-spam">0</div>
+          <div class="stat-label">Spam Blocked</div>
+        </div>
+        <div class="stat success">
+          <div class="stat-icon">✅</div>
+          <div class="stat-value" id="stat-safe">0</div>
+          <div class="stat-label">Safe Emails</div>
+        </div>
+        <div class="stat">
+          <div class="stat-icon">📬</div>
+          <div class="stat-value" id="stat-total">0</div>
+          <div class="stat-label">Total Analyzed</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Recent Activity</div>
+        <div class="card-sub">Last emails analyzed in this session</div>
+        <div class="email-rows" id="dashboard-list">
+          <div style="text-align:center; color:var(--text-muted); padding: 30px; font-size:13px;">
+            <div style="font-size:32px; margin-bottom:8px">📭</div>
+            No emails analyzed yet. Go to <strong>Analyze Email</strong> to get started.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Analyzer Page ── -->
+    <div class="page" id="page-analyzer">
+      <div class="card">
+        <div class="card-title">Email Threat Analyzer</div>
+        <div class="card-sub">Paste any email content below — our AI will instantly classify the threat level, urgency, and category.</div>
+
+        <div style="margin-bottom:12px;">
+          <span style="font-size:12px; color:var(--text-muted); margin-right:6px;">Try an example:</span>
+          <div class="examples">
+            <div class="ex-chip phishing-ex" onclick="loadExample('phishing')">🎣 Phishing</div>
+            <div class="ex-chip spam-ex" onclick="loadExample('spam')">📢 Spam</div>
+            <div class="ex-chip safe-ex" onclick="loadExample('safe')">📋 Work Email</div>
+            <div class="ex-chip safe-ex" onclick="loadExample('promo')">🛍️ Promotion</div>
+          </div>
+        </div>
+
+        <div class="analyzer-grid">
+          <div>
+            <textarea class="email-input" id="email-content" placeholder="Paste email content here…
+
+Example:
+From: support@yourbank.com
+Subject: Your account requires attention
+
+Dear Customer, your account will be suspended…"></textarea>
+            <button class="btn btn-primary" style="margin-top:12px; width:100%;" id="analyze-btn" onclick="analyzeEmail()">
+              🔍 Analyze Email
+            </button>
+          </div>
+
+          <div class="verdict-box" id="verdict-box">
+            <div class="verdict-empty">
+              <span class="icon">🤖</span>
+              Paste an email and click Analyze to see the AI verdict
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Users Page ── -->
+    <div class="page" id="page-users">
+      <div class="card">
+        <div class="card-title">Connect an Email Account</div>
+        <div class="card-sub">Register a Gmail account to let AGUERO monitor and protect your inbox automatically.</div>
+
+        <div class="form-grid">
+          <div class="form-field">
+            <label class="form-label">Choose a Username</label>
+            <input class="form-input" id="u-id" type="text" placeholder="e.g. skudo_work" />
+          </div>
+          <div class="form-field">
+            <label class="form-label">Gmail Address</label>
+            <input class="form-input" id="u-email" type="email" placeholder="alice@gmail.com" />
+          </div>
+          <div class="form-field">
+            <label class="form-label">Gmail App Password</label>
+            <input class="form-input" id="u-pass" type="password" placeholder="xxxx-yyyy-zzzz-aaaa" />
+          </div>
+          <button class="btn btn-primary" onclick="registerUser()" id="reg-btn">Connect</button>
+        </div>
+
+        <div style="font-size:12px; color:var(--text-muted); margin-top:12px;">
+          🔒 Your app password is encrypted with AES-256-GCM before being stored. The plain password is never saved.
+          <a href="https://myaccount.google.com/apppasswords" target="_blank" style="color:var(--accent);">How to create a Gmail App Password →</a>
+        </div>
+
+        <div class="user-list" id="user-list"></div>
+      </div>
+    </div>
+
+    <!-- ── Health Page ── -->
+    <div class="page" id="page-health">
+      <div class="health-grid" id="health-grid">
+        <div class="health-card">
+          <div class="h-icon">⏳</div>
+          <div class="h-name">Checking services…</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /layout -->
+
+<script>
+// ── Config ──
+const AI_URL  = 'http://localhost:8000';
+const MCP_URL = 'http://localhost:8080';
+
+// ── State ──
+const analyzed = [];
+let users = [];
+let stats = { phishing: 0, spam: 0, safe: 0, total: 0 };
+
+// ── Navigation ──
+const titles = {
+  dashboard: ['Dashboard', 'Real-time email intelligence overview'],
+  analyzer:  ['Analyze Email', 'AI-powered threat detection and classification'],
+  users:     ['Users', 'Connect and manage protected email accounts'],
+  health:    ['System Health', 'Live status of all platform services'],
+};
+
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById(`page-${id}`).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => {
+    if (n.textContent.toLowerCase().includes(id === 'dashboard' ? 'dash' : id === 'analyzer' ? 'analyz' : id === 'users' ? 'user' : 'health'))
+      n.classList.add('active');
+  });
+  document.getElementById('page-title').textContent = titles[id][0];
+  document.getElementById('page-sub').textContent = titles[id][1];
+  if (id === 'health') renderHealth();
+}
+
+// ── Health / Status ──
+let healthData = null;
+
+async function refreshHealth() {
+  setSidebarStatus('loading');
+  try {
+    const res = await fetch(`${AI_URL}/health`, { signal: AbortSignal.timeout(5000) });
+    healthData = await res.json();
+    setSidebarStatus('ai', healthData.status === 'ok');
+  } catch {
+    healthData = null;
+    setSidebarStatus('ai', false);
+  }
+  try {
+    await fetch(`${MCP_URL}/mcp`, { signal: AbortSignal.timeout(3000) });
+    setSidebarStatus('mcp', true);
+  } catch {
+    setSidebarStatus('mcp', false);
+  }
+}
+
+function setSidebarStatus(service, ok) {
+  if (service === 'loading') {
+    setDot('dot-ai', 'yellow'); document.getElementById('label-ai').textContent = 'Checking…';
+    setDot('dot-mcp', 'yellow'); document.getElementById('label-mcp').textContent = 'Checking…';
+    return;
+  }
+  if (service === 'ai') {
+    setDot('dot-ai', ok ? 'green pulse' : 'red');
+    document.getElementById('label-ai').textContent = ok ? 'AI Engine ✓' : 'AI Engine ✗';
+  }
+  if (service === 'mcp') {
+    setDot('dot-mcp', ok ? 'green pulse' : 'red');
+    document.getElementById('label-mcp').textContent = ok ? 'MCP Server ✓' : 'MCP Server ✗';
+  }
+}
+
+function setDot(id, cls) {
+  const el = document.getElementById(id);
+  el.className = 'dot ' + cls;
+}
+
+function renderHealth() {
+  const grid = document.getElementById('health-grid');
+  if (!healthData) {
+    grid.innerHTML = `
+      <div class="health-card">
+        <div class="h-icon">❌</div>
+        <div class="h-name">AI Engine</div>
+        <div class="h-status h-down">Unreachable — make sure Docker is running</div>
+      </div>
+      <div class="health-card">
+        <div class="h-icon">🦀</div>
+        <div class="h-name">MCP Server (Rust)</div>
+        <div class="h-status h-down">Unreachable</div>
+      </div>
+      <div class="health-card">
+        <div class="h-icon">🤖</div>
+        <div class="h-name">Orchestrator</div>
+        <div class="h-status" style="color:var(--text-muted)">Status determined by above services</div>
+      </div>
+      <div class="health-card">
+        <div class="h-icon">🗄️</div>
+        <div class="h-name">PostgreSQL Database</div>
+        <div class="h-status" style="color:var(--text-muted)">Connected if MCP Server is up</div>
+      </div>`;
+    return;
+  }
+  const aiOk = healthData.status === 'ok';
+  const aiDeg = healthData.status === 'degraded';
+  grid.innerHTML = `
+    <div class="health-card">
+      <div class="h-icon">🧠</div>
+      <div class="h-name">AI Classification Engine</div>
+      <div class="h-status ${aiOk ? 'h-ok' : aiDeg ? 'h-degraded' : 'h-down'}">
+        ${aiOk ? '✅ Operational' : aiDeg ? '⚠️ Degraded — using heuristic fallback' : '❌ Offline'}
+      </div>
+      <div class="h-detail">Model: <strong>${healthData.model}</strong> &nbsp;|&nbsp; Ollama: <strong>${healthData.ollama_reachable ? 'reachable' : 'unreachable'}</strong>${healthData.detail ? '<br>' + healthData.detail : ''}</div>
+    </div>
+    <div class="health-card">
+      <div class="h-icon">🦀</div>
+      <div class="h-name">MCP Server (Rust)</div>
+      <div class="h-status h-ok">✅ Running on :8080</div>
+      <div class="h-detail">Handles IMAP connections and JSON-RPC 2.0 protocol over SSE</div>
+    </div>
+    <div class="health-card">
+      <div class="h-icon">🤖</div>
+      <div class="h-name">Orchestrator (Python)</div>
+      <div class="h-status h-ok">✅ Active — polling every 60 seconds</div>
+      <div class="h-detail">Fetches 25 unread emails per cycle, classifies them, and applies labels automatically</div>
+    </div>
+    <div class="health-card">
+      <div class="h-icon">🗄️</div>
+      <div class="h-name">PostgreSQL Database</div>
+      <div class="h-status h-ok">✅ Healthy</div>
+      <div class="h-detail">Stores encrypted user credentials (AES-256-GCM) and full classification history</div>
+    </div>`;
+}
+
+// ── Analyzer ──
+const EXAMPLES = {
+  phishing: `From: security@paypa1-alerts.com
+Subject: Urgent: verify your account within 24 hours
+
+Dear Customer,
+
+Unusual sign-in activity has been detected on your account.
+Click here to confirm your password or your account will be suspended immediately.
+
+- The Security Team`,
+  spam: `Subject: 🎉 You won a prize! Claim your reward now
+
+Congratulations! You have been selected as our lucky winner.
+Claim your bonus reward — limited time offer, act now!
+Risk-free, work from home opportunity. Don't miss out!`,
+  safe: `From: jane@collegue.com
+Subject: Project sync
+
+Hi team,
+
+Let's schedule our sprint review for Friday at 3pm.
+Please review the attached proposal before then and confirm your availability.
+
+Best, Jane`,
+  promo: `From: no-reply@shopnow.com
+Subject: 🛍️ 40% off this weekend only — newsletter
+
+This month's newsletter is here!
+Exclusive deals, coupons, and discounts await.
+Shop now and get free shipping on orders over $50. Unsubscribe anytime.`,
+};
+
+function loadExample(key) {
+  document.getElementById('email-content').value = EXAMPLES[key];
+}
+
+async function analyzeEmail() {
+  const content = document.getElementById('email-content').value.trim();
+  if (!content) { toast('Please paste some email content first.', 'error'); return; }
+
+  const btn = document.getElementById('analyze-btn');
+  btn.disabled = true;
+  btn.textContent = 'Analyzing…';
+
+  const box = document.getElementById('verdict-box');
+  box.innerHTML = `<div style="text-align:center; padding:30px;"><div class="spinner"></div><div style="color:var(--text-muted); font-size:13px;">AI is reading your email…</div></div>`;
+
+  try {
+    const res = await fetch(`${AI_URL}/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    renderVerdict(data, content);
+    addToHistory(data, content);
+  } catch (e) {
+    box.innerHTML = `<div class="verdict-empty"><span class="icon">❌</span>Could not reach the AI engine. Make sure Docker is running.<br><small style="color:var(--text-muted)">${e.message}</small></div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔍 Analyze Email';
+  }
+}
+
+function renderVerdict(d, content) {
+  const tl = d.threat_level;
+  const cls = tl.toLowerCase();
+  const icons = { Phishing: '🎣', Spam: '📢', Safe: '✅' };
+  const urgencyColor = { Critical: 'var(--phishing)', Normal: 'var(--success)', Low: 'var(--text-muted)' };
+
+  document.getElementById('verdict-box').innerHTML = `
+    <div class="verdict-result">
+      <div class="badge ${cls}">${icons[tl]} ${tl}</div>
+      <div class="verdict-row">
+        <span class="verdict-key">Urgency</span>
+        <span class="verdict-val" style="color:${urgencyColor[d.urgency]}">${d.urgency}</span>
+      </div>
+      <div class="verdict-row">
+        <span class="verdict-key">Category</span>
+        <span class="verdict-val">${d.category}</span>
+      </div>
+      <div class="verdict-row">
+        <span class="verdict-key">Classified by</span>
+        <span class="verdict-val" style="color:var(--text-muted)">${d.source === 'ollama' ? '🤖 AI Model' : '🔑 Heuristic Engine'}</span>
+      </div>
+      ${d.reason ? `<div class="verdict-reason">💬 ${d.reason}</div>` : ''}
+    </div>`;
+}
+
+function addToHistory(data, content) {
+  const subject = (content.match(/^Subject:\s*(.+)/im) || [])[1] || 'Unknown Subject';
+  const sender  = (content.match(/^From:\s*(.+)/im)    || [])[1] || 'Unknown Sender';
+  stats.total++;
+  if (data.threat_level === 'Phishing') stats.phishing++;
+  else if (data.threat_level === 'Spam') stats.spam++;
+  else stats.safe++;
+  updateStats();
+  analyzed.unshift({ ...data, subject, sender, ts: new Date() });
+  renderDashboard();
+}
+
+function updateStats() {
+  document.getElementById('stat-phishing').textContent = stats.phishing;
+  document.getElementById('stat-spam').textContent     = stats.spam;
+  document.getElementById('stat-safe').textContent     = stats.safe;
+  document.getElementById('stat-total').textContent    = stats.total;
+}
+
+function renderDashboard() {
+  if (!analyzed.length) return;
+  const tl = d => d.threat_level;
+  const icons = { Phishing: '🎣', Spam: '📢', Safe: '✅' };
+  document.getElementById('dashboard-list').innerHTML = analyzed.slice(0, 12).map(d => `
+    <div class="email-row" onclick="showPage('analyzer')">
+      <div class="email-threat ${d.threat_level}"></div>
+      <div class="email-sender">${escHtml(d.sender)}</div>
+      <div class="email-subject">${escHtml(d.subject)}</div>
+      <div class="email-badge"><span class="badge ${d.threat_level.toLowerCase()}" style="font-size:11px; padding:3px 10px;">${icons[d.threat_level]} ${d.threat_level}</span></div>
+    </div>`).join('');
+}
+
+// ── Users ──
+async function registerUser() {
+  const id    = document.getElementById('u-id').value.trim();
+  const email = document.getElementById('u-email').value.trim();
+  const pass  = document.getElementById('u-pass').value.trim();
+  if (!id || !email || !pass) { toast('Please fill in all fields.', 'error'); return; }
+
+  const btn = document.getElementById('reg-btn');
+  btn.disabled = true; btn.textContent = 'Connecting…';
+
+  try {
+    const res = await fetch(`${MCP_URL}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: id, email, app_password: pass }),
+      signal: AbortSignal.timeout(8000),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.message || `HTTP ${res.status}`);
+    users.push({ id, email, ts: new Date() });
+    renderUsers();
+    document.getElementById('u-id').value = '';
+    document.getElementById('u-email').value = '';
+    document.getElementById('u-pass').value = '';
+    toast(`✅ ${id} connected successfully — AGUERO is now protecting their inbox.`, 'success');
+  } catch (e) {
+    toast(`Failed to connect: ${e.message}`, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Connect';
+  }
+}
+
+async function fetchUsers() {
+  try {
+    const res = await fetch(`${MCP_URL}/users`);
+    if (res.ok) {
+      const data = await res.json();
+      users = data.map(u => ({ id: u.user_id, email: u.email }));
+      renderUsers();
+    }
+  } catch (e) {
+    console.error("Failed to fetch users:", e);
+  }
+}
+
+function renderUsers() {
+  const list = document.getElementById('user-list');
+  if (!users.length) { list.innerHTML = ''; return; }
+  list.innerHTML = `<div style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:6px;">Connected Accounts</div>` +
+    users.map(u => `
+      <div class="user-item">
+        <div class="user-avatar">${u.id[0].toUpperCase()}</div>
+        <div class="user-info">
+          <div class="user-id">${escHtml(u.id)}</div>
+          <div class="user-email">${escHtml(u.email)}</div>
+        </div>
+        <span class="user-badge">🛡️ Protected</span>
+      </div>`).join('');
+}
+
+// ── Toast ──
+let toastTimer;
+function toast(msg, type = 'success') {
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+  clearTimeout(toastTimer);
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  toastTimer = setTimeout(() => el.remove(), 4000);
+}
+
+// ── Live Simulation ──
+let simInterval = null;
+const simKeys = ['phishing', 'spam', 'safe', 'promo'];
+
+async function toggleSimulation() {
+  const btn = document.getElementById('sim-btn');
+  if (simInterval) {
+    clearInterval(simInterval);
+    simInterval = null;
+    btn.innerHTML = '▶ Simulate Live Traffic';
+    btn.classList.add('btn-primary');
+    btn.classList.remove('btn-ghost');
+    btn.style.borderColor = '';
+    toast('Live simulation stopped.', 'success');
+  } else {
+    btn.innerHTML = '⏹ Stop Simulation';
+    btn.classList.remove('btn-primary');
+    btn.classList.add('btn-ghost');
+    btn.style.borderColor = 'var(--danger)';
+    toast('Simulation started! Random emails are arriving...', 'success');
+    
+    // Run immediately, then every 6 seconds
+    simulateOne();
+    simInterval = setInterval(simulateOne, 6000);
+  }
+}
+
+async function simulateOne() {
+  const key = simKeys[Math.floor(Math.random() * simKeys.length)];
+  const content = EXAMPLES[key];
+  
+  try {
+    const res = await fetch(`${AI_URL}/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      addToHistory(data, content);
+      toast(`New email classified: ${data.threat_level}`, data.threat_level === 'Safe' ? 'success' : 'error');
+    }
+  } catch (e) {
+    console.error("Simulation error:", e);
+  }
+}
+
+// ── Helpers ──
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Init ──
+refreshHealth();
+fetchUsers();
+setInterval(refreshHealth, 30000);
+</script>
+</body>
+</html>
